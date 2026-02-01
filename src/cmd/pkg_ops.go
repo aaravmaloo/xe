@@ -6,6 +6,7 @@ import (
 	"strings"
 	"xe/src/internal/python"
 	"xe/src/internal/resolver"
+	"xe/src/internal/utils"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -37,7 +38,8 @@ var listCmd = &cobra.Command{
 		}
 
 		var pkgs []PipPackage
-		if err := json.Unmarshal(output, &pkgs); err != nil {
+		sanitized := utils.SanitizeJSON(output)
+		if err := json.Unmarshal(sanitized, &pkgs); err != nil {
 			pterm.Error.Printf("Failed to parse pip output: %v\n", err)
 			return
 		}
