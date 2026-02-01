@@ -113,12 +113,18 @@ func (m *PythonManager) Install(version string) error {
 		return fmt.Errorf("failed to download Python %s: %s", fullVersion, resp.Status)
 	}
 
-	tmpFile, err := os.CreateTemp("", "python-embed-*.zip")
+	var tmpPattern string
+	if runtime.GOOS == "windows" {
+		tmpPattern = "python-embed-*.zip"
+	} else {
+		tmpPattern = "python-embed-*.tar.gz"
+	}
+	tmpFile, err := os.CreateTemp("", tmpPattern)
 	if err != nil {
 		return err
 	}
-	zipPath := tmpFile.Name()
-	defer os.Remove(zipPath)
+	archivePath := tmpFile.Name()
+	defer os.Remove(archivePath)
 	defer tmpFile.Close()
 
 	_, err = io.Copy(tmpFile, resp.Body)
@@ -131,14 +137,23 @@ func (m *PythonManager) Install(version string) error {
 	pterm.Info.Printf("Extracting to %s...\n", targetDir)
 	os.MkdirAll(targetDir, 0755)
 
-	f, err := os.Open(zipPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+	if runtime.GOOS == "linux" {
+		// Use native tar on Linux to handle symlinks and permissions correctly
+		cmd := exec.Command("tar", "-xzf", archivePath, "-C", targetDir, "--strip-components=1")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("failed to extract with tar: %v, output: %s", err, string(output))
+		}
+	} else {
+		// Windows
+		f, err := os.Open(archivePath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
 
-	if err := extract.Archive(context.Background(), f, targetDir, nil); err != nil {
-		return fmt.Errorf("failed to extract: %v", err)
+		if err := extract.Archive(context.Background(), f, targetDir, nil); err != nil {
+			return fmt.Errorf("failed to extract: %v", err)
+		}
 	}
 
 	pterm.Success.Printf("Python %s installed at %s\n", version, targetDir)
