@@ -23,14 +23,19 @@ graph TD
 | `~/.xe/cache` | Content-addressable wheel cache (SHA-256). |
 | `~/.xe/config.yaml` | Global configuration settings. |
 
-## Windows Integration
+## Security
 
-### Native Shims
-Unlike batch-file based shims which can be slow, `xe` generates native `.exe` shims that call the target executable with minimal overhead. This ensures compatibility with all Windows terminals (PowerShell, CMD, Git Bash).
+`xe` does not store plaintext tokens in `.env` or config files.
 
-### Security
-`xe` does not store plaintext tokens in `.env` or config files. It uses the **Windows Data Protection API (DPAPI)** via the Credential Manager:
-- **Service**: `xe-pypi`
-- **Target**: `https://upload.pypi.org/legacy/`
+- **Windows**: Integrates with the **Windows Data Protection API (DPAPI)** via the Credential Manager.
+- **Linux**: Uses a secure file-based storage in `~/.xe/credentials` with restricted permissions (0600).
 
-This ensures that your credentials are tied to your Windows user account and encrypted at rest.
+This ensures that your credentials are encrypted or restricted to your user account.
+
+## Platform Support
+
+| Platform | Python Storage | Shim Method | Security Native |
+| :--- | :--- | :--- | :--- |
+| **Windows** | `AppData/Local/Programs/Python` | `.bat` shims | Windows Credential Manager |
+| **Linux** | `~/.xe/python` | Shell shims | Restricted file storage |
+
