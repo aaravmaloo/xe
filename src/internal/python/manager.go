@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"xe/src/internal/utils"
 	"xe/src/internal/venv"
@@ -25,7 +26,12 @@ func NewPythonManager() (*PythonManager, error) {
 	if err != nil {
 		return nil, err
 	}
-	baseDir := filepath.Join(home, "AppData", "Local", "Programs", "Python")
+	var baseDir string
+	if runtime.GOOS == "windows" {
+		baseDir = filepath.Join(home, "AppData", "Local", "Programs", "Python")
+	} else {
+		baseDir = filepath.Join(home, ".xe", "python")
+	}
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, err
 	}
@@ -71,8 +77,14 @@ func (m *PythonManager) Install(version string) error {
 		fullVersion = version
 	}
 
-	// Use embeddable Python distribution instead of installer for clean extraction
-	url := fmt.Sprintf("https://www.python.org/ftp/python/%s/python-%s-embed-amd64.zip", fullVersion, fullVersion)
+	// Use appropriate distribution for each platform
+	var url string
+	if runtime.GOOS == "windows" {
+		url = fmt.Sprintf("https://www.python.org/ftp/python/%s/python-%s-embed-amd64.zip", fullVersion, fullVersion)
+	} else {
+		// Using python-build-standalone for Linux
+		url = fmt.Sprintf("https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-%s+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz", fullVersion)
+	}
 
 	pterm.Info.Printf("Downloading embeddable Python from %s...\n", url)
 
@@ -127,12 +139,16 @@ func (m *PythonManager) Install(version string) error {
 		pterm.Warning.Printf("Pip bootstrap failed: %v\n", err)
 	}
 
-	// Add to PATH (both Root and Scripts)
+	// Add to PATH (both Root and Scripts/bin)
 	if exe, err := m.GetPythonExe(version); err == nil {
 		pythonDir := filepath.Dir(exe)
 		utils.AddToPath(pythonDir)
-		utils.AddToPath(filepath.Join(pythonDir, "Scripts"))
-		pterm.Success.Printf("Added Python %s and Scripts to PATH.\n", version)
+		if runtime.GOOS == "windows" {
+			utils.AddToPath(filepath.Join(pythonDir, "Scripts"))
+		} else {
+			utils.AddToPath(filepath.Join(pythonDir, "bin"))
+		}
+		pterm.Success.Printf("Added Python %s to PATH.\n", version)
 	}
 
 	return nil
@@ -211,19 +227,31 @@ func (m *PythonManager) BootstrapPip(version string) error {
 func (m *PythonManager) GetPythonExe(version string) (string, error) {
 	pythonDir := m.GetPythonPath(version)
 
-	// 1. tools directory (NuGet variant)
-	toolsExe := filepath.Join(pythonDir, "tools", "python.exe")
-	if _, err := os.Stat(toolsExe); err == nil {
-		return toolsExe, nil
-	}
+	if runtime.GOOS == "windows" {
+		// 1. tools directory (NuGet variant)
+		toolsExe := filepath.Join(pythonDir, "tools", "python.exe")
+		if _, err := os.Stat(toolsExe); err == nil {
+			return toolsExe, nil
+		}
 
-	// 2. Root directory
-	rootExe := filepath.Join(pythonDir, "python.exe")
-	if _, err := os.Stat(rootExe); err == nil {
-		return rootExe, nil
+		// 2. Root directory
+		rootExe := filepath.Join(pythonDir, "python.exe")
+		if _, err := os.Stat(rootExe); err == nil {
+			return rootExe, nil
+		}
+		return "", fmt.Errorf("python.exe not found in %s", pythonDir)
+	} else {
+		// Linux/Unix
+		binExe := filepath.Join(pythonDir, "bin", "python3")
+		if _, err := os.Stat(binExe); err == nil {
+			return binExe, nil
+		}
+		binExe2 := filepath.Join(pythonDir, "bin", "python")
+		if _, err := os.Stat(binExe2); err == nil {
+			return binExe2, nil
+		}
+		return "", fmt.Errorf("python/python3 not found in %s/bin", pythonDir)
 	}
-
-	return "", fmt.Errorf("python.exe not found in %s", pythonDir)
 }
 
 func (m *PythonManager) GetLibRoot(version string) (string, error) {
@@ -247,7 +275,12 @@ func (m *PythonManager) GetEffectivePythonExe(version string) (string, error) {
 	vm, _ := venv.NewVenvManager()
 	activeVenv := vm.GetActiveVenv()
 	if activeVenv != "" {
-		venvExe := filepath.Join(activeVenv, "Scripts", "python.exe")
+		var venvExe string
+		if runtime.GOOS == "windows" {
+			venvExe = filepath.Join(activeVenv, "Scripts", "python.exe")
+		} else {
+			venvExe = filepath.Join(activeVenv, "bin", "python")
+		}
 		if _, err := os.Stat(venvExe); err == nil {
 			return venvExe, nil
 		}
@@ -267,9 +300,14 @@ func (m *PythonManager) RunPython(version string, args ...string) ([]byte, error
 	env := os.Environ()
 	exeDir := filepath.Dir(exe)
 
-	// Add the environment root and Scripts to PATH
+	// Add the environment root and Scripts/bin to PATH
 	pathValue := os.Getenv("PATH")
-	newPath := exeDir + string(os.PathListSeparator) + filepath.Join(exeDir, "Scripts") + string(os.PathListSeparator) + pathValue
+	var newPath string
+	if runtime.GOOS == "windows" {
+		newPath = exeDir + string(os.PathListSeparator) + filepath.Join(exeDir, "Scripts") + string(os.PathListSeparator) + pathValue
+	} else {
+		newPath = exeDir + string(os.PathListSeparator) + pathValue
+	}
 
 	pathFound := false
 	for i, e := range env {
