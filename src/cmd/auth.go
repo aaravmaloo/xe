@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"runtime"
 	"xe/src/internal/security"
 
 	"github.com/spf13/cobra"
@@ -25,7 +26,11 @@ var loginCmd = &cobra.Command{
 			fmt.Printf("Error saving token: %v\n", err)
 			return
 		}
-		fmt.Println("Token saved securely in Windows Credential Manager")
+		if runtime.GOOS == "windows" {
+			fmt.Println("Token saved securely in Windows Credential Manager")
+		} else {
+			fmt.Println("Token saved securely in ~/.xe/credentials")
+		}
 	},
 }
 
