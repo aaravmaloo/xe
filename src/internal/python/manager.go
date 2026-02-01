@@ -57,24 +57,39 @@ func (m *PythonManager) Install(version string) error {
 	targetDir := m.GetPythonPath(version)
 	pterm.Info.Printf("Installing Python %s to %s...\n", version, targetDir)
 
-	// Map short version to full installer version
+	// Map short version to full installer version (platform-specific)
 	fullVersion := ""
-	switch version {
-	case "3.9":
-		fullVersion = "3.9.13"
-	case "3.10":
-		fullVersion = "3.10.11"
-	case "3.11":
-		fullVersion = "3.11.9"
-	case "3.12":
-		fullVersion = "3.12.3"
-	case "3.13":
-		fullVersion = "3.13.0"
-	case "3.14":
-		fullVersion = "3.14.0a1" // Pre-release
-	default:
-		// Fallback: try to use the version as is, assuming user passed full version
-		fullVersion = version
+	if runtime.GOOS == "windows" {
+		switch {
+		case version == "3.9" || strings.HasPrefix(version, "3.9"):
+			fullVersion = "3.9.13"
+		case version == "3.10" || strings.HasPrefix(version, "3.10"):
+			fullVersion = "3.10.11"
+		case version == "3.11" || strings.HasPrefix(version, "3.11"):
+			fullVersion = "3.11.9"
+		case version == "3.12" || strings.HasPrefix(version, "3.12"):
+			fullVersion = "3.12.3"
+		case version == "3.13" || strings.HasPrefix(version, "3.13"):
+			fullVersion = "3.13.0"
+		default:
+			fullVersion = version
+		}
+	} else {
+		// Linux mapping for python-build-standalone (Release 20241016)
+		switch {
+		case strings.HasPrefix(version, "3.9"):
+			fullVersion = "3.9.20"
+		case strings.HasPrefix(version, "3.10"):
+			fullVersion = "3.10.15"
+		case strings.HasPrefix(version, "3.11"):
+			fullVersion = "3.11.10"
+		case strings.HasPrefix(version, "3.12"):
+			fullVersion = "3.12.7"
+		case strings.HasPrefix(version, "3.13"):
+			fullVersion = "3.13.0"
+		default:
+			fullVersion = version
+		}
 	}
 
 	// Use appropriate distribution for each platform
