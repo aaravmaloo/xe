@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sync"
 	"xe/src/internal/python"
+	"xe/src/internal/utils"
 	"xe/src/internal/venv"
 
 	"github.com/codeclysm/extract/v3"
@@ -88,7 +89,8 @@ func (r *Resolver) Resolve(pkgName string, pythonVersion string) ([]Package, err
 	}
 
 	var report PipReport
-	if err := json.Unmarshal(reportData, &report); err != nil {
+	sanitized := utils.SanitizeJSON(reportData)
+	if err := json.Unmarshal(sanitized, &report); err != nil {
 		return nil, fmt.Errorf("failed to parse pip report: %v", err)
 	}
 
@@ -251,4 +253,3 @@ func verifyChecksum(path, expectedHash string) (bool, error) {
 	actualHash := hex.EncodeToString(hasher.Sum(nil))
 	return actualHash == expectedHash, nil
 }
-

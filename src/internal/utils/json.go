@@ -2,30 +2,29 @@ package utils
 
 import (
 	"bytes"
+	"encoding/json"
 )
 
-// SanitizeJSON attempts to find the first '{' or '[' and the last '}' or ']'
-// to extract a valid JSON string from potentially noisy output (like pip warnings).
+// SanitizeJSON extracts the first valid JSON object or array from a byte slice.
+// It is useful for cleaning output from tools like pip that might append warnings or other noise.
 func SanitizeJSON(data []byte) []byte {
-	startChar := byte('{')
-	endChar := byte('}')
-
-	startIdx := bytes.IndexByte(data, startChar)
-	startArrayIdx := bytes.IndexByte(data, '[')
-
-	if startIdx == -1 || (startArrayIdx != -1 && startArrayIdx < startIdx) {
-		startIdx = startArrayIdx
-		endChar = byte(']')
-	}
-
+	// Find the first occurrence of '{' or '['
+	startIdx := bytes.IndexAny(data, "{[")
 	if startIdx == -1 {
 		return data
 	}
 
-	endIdx := bytes.LastIndexByte(data, endChar)
-	if endIdx == -1 || endIdx < startIdx {
-		return data
+	trimmed := data[startIdx:]
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+
+	var raw json.RawMessage
+	err := decoder.Decode(&raw)
+	if err != nil {
+		// Fallback: if decoding fails, just return original (or trimmed)
+		return trimmed
 	}
 
-	return data[startIdx : endIdx+1]
+	// The decoder only reads one JSON value.
+	// We return exactly that value.
+	return []byte(raw)
 }
