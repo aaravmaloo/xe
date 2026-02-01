@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"xe/src/internal/python"
 	"xe/src/internal/venv"
 
@@ -72,24 +73,42 @@ var venvActivateCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		name := args[0]
 		vm, _ := venv.NewVenvManager()
-		psScript := vm.GetPSActivateScript(name)
 
-		if _, err := os.Stat(psScript); os.IsNotExist(err) {
-			pterm.Error.Printf("Venv %s does not exist or PowerShell script missing.\n", name)
-			return
+		if runtime.GOOS == "windows" {
+			psScript := vm.GetPSActivateScript(name)
+			if _, err := os.Stat(psScript); os.IsNotExist(err) {
+				pterm.Error.Printf("Venv %s does not exist or PowerShell script missing.\n", name)
+				return
+			}
+
+			pterm.Info.Printf("Launching new PowerShell window with venv '%s' activated...\n", name)
+			shellCmd := exec.Command("cmd", "/c", "start", "powershell", "-NoExit", "-Command", fmt.Sprintf(". '%s'", psScript))
+			if err := shellCmd.Start(); err != nil {
+				pterm.Error.Printf("Failed to launch new window: %v\n", err)
+				return
+			}
+			pterm.Success.Println("New window launched.")
+		} else {
+			// Linux/Unix
+			activateScript := vm.GetActivateScript(name)
+			if _, err := os.Stat(activateScript); os.IsNotExist(err) {
+				pterm.Error.Printf("Venv %s does not exist or activation script missing.\n", name)
+				return
+			}
+
+			pterm.Info.Printf("Activating venv '%s' in a new subshell...\n", name)
+
+			// Source the activation script and start bash
+			shellCmd := exec.Command("bash", "-c", fmt.Sprintf("source %s && bash", activateScript))
+			shellCmd.Stdin = os.Stdin
+			shellCmd.Stdout = os.Stdout
+			shellCmd.Stderr = os.Stderr
+
+			if err := shellCmd.Run(); err != nil {
+				pterm.Error.Printf("Failed to activate venv: %v\n", err)
+				return
+			}
 		}
-
-		pterm.Info.Printf("Launching new PowerShell window with venv '%s' activated...\n", name)
-
-		// Start a new powershell process in a new window and source the activation script
-		// cmd /c start powershell -NoExit -Command ". 'path\to\Activate.ps1'"
-		shellCmd := exec.Command("cmd", "/c", "start", "powershell", "-NoExit", "-Command", fmt.Sprintf(". '%s'", psScript))
-		if err := shellCmd.Start(); err != nil {
-			pterm.Error.Printf("Failed to launch new window: %v\n", err)
-			return
-		}
-
-		pterm.Success.Println("New window launched.")
 	},
 }
 
