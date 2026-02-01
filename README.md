@@ -6,7 +6,7 @@
 | :--- | :--- |
 | **Performance** | 10-100x faster than standard `pip` operations through parallel execution. |
 | **Deterministic** | Full lockfile support with SHA-256 verification via `xe.lock`. |
-| **Native Windows** | Direct integration with Windows Credential Manager and Native Shims. |
+| **Cross-Platform** | Native support for Windows (Credential Manager) and Linux (Profile shims). |
 | **Unified CLI** | Replaces `pip`, `venv`, `pyenv`, and `poetry` with a single binary. |
 
 ---
@@ -14,18 +14,24 @@
 ## Quick Start
 
 ### 1. Installation
-Build the native Windows executable:
-```powershell
+Build the native executable:
+```bash
+# Windows
 go build -o xe.exe main.go
+
+# Linux
+go build -o xe main.go
 ```
 
 ### 2. Initialization
 Set up the internal shim management system:
-```powershell
-.\xe setup
+```bash
+.\xe setup  # Windows
+./xe setup  # Linux
 ```
 > [!IMPORTANT]
 > This adds `~/.xe/bin` to your User PATH. Please restart your terminal after running this command.
+
 
 ### 3. Usage
 ```powershell
