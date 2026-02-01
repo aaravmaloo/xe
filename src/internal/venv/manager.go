@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 )
 
 type VenvManager struct {
@@ -59,9 +60,15 @@ func (v *VenvManager) GetEffectivePythonPath(defaultPythonPath string) string {
 }
 
 func (v *VenvManager) GetActivateScript(name string) string {
-	return filepath.Join(v.BaseDir, name, "Scripts", "activate.bat")
+	if runtime.GOOS == "windows" {
+		return filepath.Join(v.BaseDir, name, "Scripts", "activate.bat")
+	}
+	return filepath.Join(v.BaseDir, name, "bin", "activate")
 }
 
 func (v *VenvManager) GetPSActivateScript(name string) string {
-	return filepath.Join(v.BaseDir, name, "Scripts", "Activate.ps1")
+	if runtime.GOOS == "windows" {
+		return filepath.Join(v.BaseDir, name, "Scripts", "Activate.ps1")
+	}
+	return filepath.Join(v.BaseDir, name, "bin", "Activate.ps1") // PowerShell on Linux
 }
