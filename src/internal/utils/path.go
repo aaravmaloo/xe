@@ -14,13 +14,16 @@ func AddToPath(dir string) error {
 	pterm.Info.Printf("Ensuring %s is in system PATH...\n", dir)
 
 	if runtime.GOOS == "windows" {
-		// Use powershell to check and append to the User PATH persistently
+
 		script := fmt.Sprintf(`
-			$dir = "%s"
-			$oldPath = [Environment]::GetEnvironmentVariable("Path", "User")
-			if ($oldPath -split ";" -notcontains $dir) {
-				$newPath = $oldPath + (if ($oldPath.EndsWith(";")) {""} else {";"}) + $dir
-				[Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+			$targetDir = '%s'
+			$currentPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+			if ($null -eq $currentPath) { $currentPath = '' }
+			
+			$pathArray = $currentPath.Split(';', [System.StringSplitOptions]::RemoveEmptyEntries)
+			if ($pathArray -notcontains $targetDir) {
+				$newPath = ($pathArray + $targetDir) -join ';'
+				[Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
 				Write-Output "Added to PATH"
 			} else {
 				Write-Output "Already in PATH"
