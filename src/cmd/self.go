@@ -16,7 +16,7 @@ var updateCmd = &cobra.Command{
 	Short: "Update xe to the latest version",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Checking for updates...")
-		fmt.Println("xe is already up to date (v0.1.0)")
+		fmt.Println("xe is already up to date (v1.0.0)")
 	},
 }
 
