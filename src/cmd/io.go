@@ -2,8 +2,12 @@ package cmd
 
 import (
 	"fmt"
+	"strings"
+	"xe/src/internal/resolver"
 
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var importCmd = &cobra.Command{
@@ -12,11 +16,50 @@ var importCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		path := args[0]
-		fmt.Printf("Importing from %s...\n", path)
+		pterm.Info.Printf("Importing from %s...\n", path)
 
-		// Logic to detect type and import
-		// If it's a .toml, use lockfile.Load
-		// If it's a .zip, unzip to cache and install
+		if strings.HasSuffix(path, "xe.toml") {
+			v := viper.New()
+			v.SetConfigFile(path)
+			if err := v.ReadInConfig(); err != nil {
+				pterm.Error.Printf("Failed to read %s: %v\n", path, err)
+				return
+			}
+
+			deps := v.GetStringMapString("deps")
+			if deps == nil || len(deps) == 0 {
+				pterm.Warning.Println("No dependencies found in [deps] section")
+				return
+			}
+
+			version := GetPreferredPythonVersion()
+			res := resolver.NewResolver()
+
+			pterm.Info.Printf("Installing %d dependencies from %s...\n", len(deps), path)
+
+			for pkgName, pkgVersion := range deps {
+				// We call Resolve with version string if available, or just name
+				requirement := pkgName
+				if pkgVersion != "" {
+					requirement = fmt.Sprintf("%s==%s", pkgName, pkgVersion)
+				}
+
+				pterm.Info.Printf("Resolving %s...\n", requirement)
+				packages, err := res.Resolve(requirement, version)
+				if err != nil {
+					pterm.Error.Printf("Failed to resolve %s: %v\n", requirement, err)
+					continue
+				}
+
+				if err := res.DownloadParallel(packages, version); err != nil {
+					pterm.Error.Printf("Failed to install %s: %v\n", requirement, err)
+					continue
+				}
+				pterm.Success.Printf("Successfully imported %s\n", pkgName)
+			}
+		} else {
+			pterm.Warning.Println("Import currently only supports xe.toml files")
+		}
 	},
 }
 
