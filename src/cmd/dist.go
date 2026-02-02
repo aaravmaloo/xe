@@ -12,7 +12,7 @@ var buildCmd = &cobra.Command{
 	Short: "Build the current project into a wheel",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Println("Building wheel...")
-		fmt.Println("Successfully built xe_project-0.1.0-py3-none-any.whl")
+		fmt.Println("Successfully built xe_project-1.0.0-py3-none-any.whl")
 	},
 }
 
