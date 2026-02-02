@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"xe/src/internal/python"
 	"xe/src/internal/resolver"
@@ -104,24 +105,52 @@ var checkCmd = &cobra.Command{
 }
 
 var removeCmd = &cobra.Command{
-	Use:   "remove <package_name>",
-	Short: "Remove a package from the environment",
-	Args:  cobra.ExactArgs(1),
+	Use:   "remove <package_name>...",
+	Short: "Remove one or more packages from the environment",
+	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		pkgName := args[0]
 		pm, _ := python.NewPythonManager()
 		version := GetPreferredPythonVersion()
 
-		pterm.Info.Printf("Removing %s (%s)...\n", pkgName, version)
+		var removedPackages []string
 
-		output, err := pm.RunPython(version, "-m", "pip", "uninstall", "-y", pkgName)
-		if err != nil {
-			pterm.Error.Printf("Failed to remove %s: %v\n", pkgName, err)
-			fmt.Println(string(output))
-			return
+		for _, pkgName := range args {
+			pterm.Info.Printf("Removing %s (%s)...\n", pkgName, version)
+
+			output, err := pm.RunPython(version, "-m", "pip", "uninstall", "-y", pkgName)
+			if err != nil {
+				pterm.Error.Printf("Failed to remove %s: %v\n", pkgName, err)
+				fmt.Println(string(output))
+				continue
+			}
+
+			pterm.Success.Printf("Successfully removed %s\n", pkgName)
+			removedPackages = append(removedPackages, pkgName)
 		}
 
-		pterm.Success.Printf("Successfully removed %s\n", pkgName)
+		// Update xe.toml if it exists
+		if _, err := os.Stat("xe.toml"); err == nil && len(removedPackages) > 0 {
+			v := viper.New()
+			v.SetConfigFile("xe.toml")
+			if err := v.ReadInConfig(); err == nil {
+				deps := v.GetStringMapString("deps")
+				if deps != nil {
+					updated := false
+					for _, pkgName := range removedPackages {
+						lowerPkg := strings.ToLower(pkgName)
+						if _, exists := deps[lowerPkg]; exists {
+							delete(deps, lowerPkg)
+							updated = true
+						}
+					}
+					if updated {
+						v.Set("deps", deps)
+						v.WriteConfig()
+						pterm.Success.Println("Updated xe.toml [deps] section")
+					}
+				}
+			}
+		}
 	},
 }
 
