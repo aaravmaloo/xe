@@ -112,9 +112,48 @@ var removeCmd = &cobra.Command{
 		pm, _ := python.NewPythonManager()
 		version := GetPreferredPythonVersion()
 
+		var packagesToRemove []string
+		isRemoveAll := len(args) == 1 && args[0] == "all"
+
+		if isRemoveAll {
+			pterm.Info.Printf("Identifying all non-core packages for removal (Python %s)...\n", version)
+			output, err := pm.RunPython(version, "-m", "pip", "list", "--format", "json")
+			if err != nil {
+				pterm.Error.Printf("Failed to list packages: %v\n", err)
+				return
+			}
+
+			var pkgs []PipPackage
+			sanitized := utils.SanitizeJSON(output)
+			if err := json.Unmarshal(sanitized, &pkgs); err != nil {
+				pterm.Error.Printf("Failed to parse pip output: %v\n", err)
+				return
+			}
+
+			corePackages := map[string]bool{
+				"pip":        true,
+				"setuptools": true,
+				"wheel":      true,
+			}
+
+			for _, p := range pkgs {
+				if !corePackages[strings.ToLower(p.Name)] {
+					packagesToRemove = append(packagesToRemove, p.Name)
+				}
+			}
+
+			if len(packagesToRemove) == 0 {
+				pterm.Info.Println("No non-core packages found to remove.")
+				return
+			}
+			pterm.Info.Printf("Found %d packages to remove.\n", len(packagesToRemove))
+		} else {
+			packagesToRemove = args
+		}
+
 		var removedPackages []string
 
-		for _, pkgName := range args {
+		for _, pkgName := range packagesToRemove {
 			pterm.Info.Printf("Removing %s (%s)...\n", pkgName, version)
 
 			output, err := pm.RunPython(version, "-m", "pip", "uninstall", "-y", pkgName)
@@ -133,20 +172,26 @@ var removeCmd = &cobra.Command{
 			v := viper.New()
 			v.SetConfigFile("xe.toml")
 			if err := v.ReadInConfig(); err == nil {
-				deps := v.GetStringMapString("deps")
-				if deps != nil {
-					updated := false
-					for _, pkgName := range removedPackages {
-						lowerPkg := strings.ToLower(pkgName)
-						if _, exists := deps[lowerPkg]; exists {
-							delete(deps, lowerPkg)
-							updated = true
+				if isRemoveAll {
+					v.Set("deps", make(map[string]string))
+					v.WriteConfig()
+					pterm.Success.Println("Cleared xe.toml [deps] section")
+				} else {
+					deps := v.GetStringMapString("deps")
+					if deps != nil {
+						updated := false
+						for _, pkgName := range removedPackages {
+							lowerPkg := strings.ToLower(pkgName)
+							if _, exists := deps[lowerPkg]; exists {
+								delete(deps, lowerPkg)
+								updated = true
+							}
 						}
-					}
-					if updated {
-						v.Set("deps", deps)
-						v.WriteConfig()
-						pterm.Success.Println("Updated xe.toml [deps] section")
+						if updated {
+							v.Set("deps", deps)
+							v.WriteConfig()
+							pterm.Success.Println("Updated xe.toml [deps] section")
+						}
 					}
 				}
 			}
