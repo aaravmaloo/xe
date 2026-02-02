@@ -5,7 +5,7 @@
 | Feature | Description |
 | :--- | :--- |
 | **Performance** | 10-100x faster than standard `pip` operations through parallel execution. |
-| **Deterministic** | Full lockfile support with SHA-256 verification via `xe.lock`. |
+| **Deterministic** | Full dependency tracking in `xe.toml`. |
 | **Cross-Platform** | Native support for Windows (Credential Manager) and Linux (Profile shims). |
 | **Unified CLI** | Replaces `pip`, `venv`, `pyenv`, and `poetry` with a single binary. |
 
@@ -36,7 +36,7 @@ Set up the internal shim management system:
 ### 3. Usage
 ```powershell
 xe use 3.12 --default  # Set global Python version
-xe add requests        # Lightning fast dependency installation
+xe add requests flask  # Lightning fast dependency installation
 xe init my_project     # Scaffold a new virtual environment
 ```
 
@@ -44,15 +44,56 @@ xe init my_project     # Scaffold a new virtual environment
 
 ## Command Reference
 
+### Package Management
+| Command | Purpose | Usage Example |
+| :--- | :--- | :--- |
+| `add` | Install one or more packages | `xe add pandas numpy` |
+| `remove` | Remove packages | `xe remove flask` |
+| `remove all` | Remove ALL non-core packages | `xe remove all` |
+| `list` | List installed packages | `xe list` |
+| `import` | Install dependencies from `xe.toml` | `xe import xe.toml` |
+
+### Environment & Project
 | Command | Purpose | Usage Example |
 | :--- | :--- | :--- |
 | `use` | Switch or install Python versions | `xe use 3.11` |
-| `add` | Install a package and dependencies | `xe add pandas` |
 | `init` | Initialize a new environment | `xe init my_env` |
-| `venv` | Manage/Activate environments | `xe venv my_env` |
+| `venv` | Manage/Activate environments | `xe venv create test` |
+| `shell` | Spaen a shell in the venv | `xe shell` |
+| `run` | Run command in venv context | `xe run -- python script.py` |
+| `clean` | Remove global/local xe data | `xe clean` |
+
+### Inspection & Debugging
+| Command | Purpose | Usage Example |
+| :--- | :--- | :--- |
 | `why` | Trace dependency requirements | `xe why pandas` |
 | `tree` | Visualize dependency graph | `xe tree` |
+| `doctor` | Check environment health | `xe doctor` |
+
+### Publishing & Security
+| Command | Purpose | Usage Example |
+| :--- | :--- | :--- |
 | `auth` | Manage PyPI credentials | `xe auth login` |
+| `build` | Build wheel | `xe build` |
+| `push` | Push to PyPI | `xe push` |
+
+---
+
+## Dependency Tracking (`xe.toml`)
+
+`xe` automatically tracks all installed packages and their sub-dependencies in `xe.toml` to ensure reproducible environments.
+
+```toml
+[deps]
+flask = '3.1.2'
+requests = '2.32.5'
+# ... sub-dependencies included
+```
+
+Restoring an environment is as simple as:
+```bash
+xe import xe.toml
+```
 
 ---
 
@@ -77,4 +118,3 @@ xe init my_project     # Scaffold a new virtual environment
 
 ---
 Built with 💙 in Go.
-
