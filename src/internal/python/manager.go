@@ -371,6 +371,32 @@ func (m *PythonManager) GetLibRoot(version string) (string, error) {
 	return pythonDir, nil
 }
 
+func (m *PythonManager) GetSitePackagesDir(version string) (string, error) {
+	libRoot, err := m.GetLibRoot(version)
+	if err != nil {
+		return "", err
+	}
+
+	if runtime.GOOS == "windows" {
+		site := filepath.Join(libRoot, "Lib", "site-packages")
+		if err := os.MkdirAll(site, 0755); err != nil {
+			return "", err
+		}
+		return site, nil
+	}
+
+	parts := strings.Split(version, ".")
+	majorMinor := version
+	if len(parts) >= 2 {
+		majorMinor = parts[0] + "." + parts[1]
+	}
+	site := filepath.Join(libRoot, "lib", "python"+majorMinor, "site-packages")
+	if err := os.MkdirAll(site, 0755); err != nil {
+		return "", err
+	}
+	return site, nil
+}
+
 func (m *PythonManager) GetEffectivePythonExe(version string) (string, error) {
 	libRoot, _ := m.GetLibRoot(version)
 	if libRoot != "" {
