@@ -1,9 +1,11 @@
-[platform]
-arch = 'x86_64'
-os = 'windows'
+[project]
+  name = "xe"
 
 [python]
-version = '3.9'
+  version = "3.12"
 
-[venv]
-name = 'current'
+[deps]
+
+[cache]
+  mode = "global-cas"
+  global_dir = "C:\\Users\\Aarav Maloo\\AppData\\Local\\xe\\cache"
