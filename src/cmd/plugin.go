@@ -2,8 +2,7 @@ package cmd
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
+	"xe/src/internal/xedir"
 
 	"github.com/spf13/cobra"
 )
@@ -17,8 +16,7 @@ var pluginListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "List installed plugins",
 	Run: func(cmd *cobra.Command, args []string) {
-		home, _ := os.UserHomeDir()
-		pluginDir := filepath.Join(home, ".xe", "plugins")
+		pluginDir := xedir.PluginDir()
 		fmt.Printf("Plugins directory: %s\n", pluginDir)
 		fmt.Println("No plugins installed.")
 	},
