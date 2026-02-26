@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"xe/src/internal/utils"
+	"xe/src/internal/xedir"
 
 	"github.com/codeclysm/extract/v3"
 	"github.com/pterm/pterm"
@@ -32,7 +33,7 @@ func NewPythonManager() (*PythonManager, error) {
 	if runtime.GOOS == "windows" {
 		baseDir = filepath.Join(home, "AppData", "Local", "Programs", "Python")
 	} else {
-		baseDir = filepath.Join(home, ".xe", "python")
+		baseDir = filepath.Join(xedir.MustHome(), "python")
 	}
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, err
