@@ -5,16 +5,13 @@ package security
 import (
 	"os"
 	"path/filepath"
+	"xe/src/internal/xedir"
 )
 
 const CredentialTarget = "xe_pypi_token"
 
 func getCredPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	dir := filepath.Join(home, ".xe")
+	dir := xedir.MustHome()
 	os.MkdirAll(dir, 0700)
 	return filepath.Join(dir, "credentials"), nil
 }
