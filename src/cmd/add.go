@@ -1,62 +1,54 @@
 package cmd
 
 import (
+	"context"
 	"os"
-	"strings"
-	"xe/src/internal/resolver"
+	"path/filepath"
+	"xe/src/internal/engine"
+	"xe/src/internal/project"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var addCmd = &cobra.Command{
 	Use:   "add <package_name>...",
-	Short: "Add one or more packages to the current project or globally",
+	Short: "Add one or more packages to the current project (no venv)",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		version := GetPreferredPythonVersion()
-		res := resolver.NewResolver()
-
-		var installedPackages []resolver.Package
-
-		for _, pkgName := range args {
-			pterm.Info.Printf("Resolving dependencies for %s (%s)...\n", pkgName, version)
-
-			packages, err := res.Resolve(pkgName, version)
-			if err != nil {
-				pterm.Error.Printf("Failed to resolve %s: %v\n", pkgName, err)
-				continue
-			}
-
-			if err := res.DownloadParallel(packages, version); err != nil {
-				pterm.Error.Printf("Failed to install packages for %s: %v\n", pkgName, err)
-				continue
-			}
-
-			pterm.Success.Printf("Successfully added %s and its dependencies\n", pkgName)
-
-			// Add all resolved packages to the list to be tracked in xe.toml
-			installedPackages = append(installedPackages, packages...)
+		wd, err := os.Getwd()
+		if err != nil {
+			pterm.Error.Printf("Failed to get cwd: %v\n", err)
+			return
+		}
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
+		if err != nil {
+			pterm.Error.Printf("Failed to load xe.toml: %v\n", err)
+			return
+		}
+		installer, err := engine.NewInstaller(cfg.Cache.GlobalDir)
+		if err != nil {
+			pterm.Error.Printf("Failed to init installer: %v\n", err)
+			return
+		}
+		pterm.Info.Printf("Installing %d requirement(s) with Python %s...\n", len(args), cfg.Python.Version)
+		resolved, err := installer.Install(context.Background(), cfg, args, wd)
+		if err != nil {
+			pterm.Error.Printf("Install failed: %v\n", err)
+			return
 		}
 
-		// Update xe.toml if it exists
-		if _, err := os.Stat("xe.toml"); err == nil && len(installedPackages) > 0 {
-			v := viper.New()
-			v.SetConfigFile("xe.toml")
-			if err := v.ReadInConfig(); err == nil {
-				deps := v.GetStringMapString("deps")
-				if deps == nil {
-					deps = make(map[string]string)
-				}
-				for _, p := range installedPackages {
-					deps[strings.ToLower(p.Name)] = p.Version
-				}
-				v.Set("deps", deps)
-				v.WriteConfig()
-				pterm.Success.Println("Updated xe.toml [deps] section")
-			}
+		for _, req := range args {
+			cfg.Deps[project.NormalizeDepName(req)] = "*"
 		}
+		for _, p := range resolved {
+			cfg.Deps[project.NormalizeDepName(p.Name)] = p.Version
+		}
+		if err := project.Save(tomlPath, cfg); err != nil {
+			pterm.Warning.Printf("Installed but failed updating %s: %v\n", filepath.Base(tomlPath), err)
+			return
+		}
+		pterm.Success.Printf("Installed %d package artifact(s) and updated xe.toml\n", len(resolved))
 	},
 }
 
