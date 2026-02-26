@@ -17,12 +17,13 @@ var cleanCmd = &cobra.Command{
 	Use:   "clean",
 	Short: "Remove all global and local state managed by xe",
 	Long: `Remove the global xe data directory (~/.xe), all self-installed 
-Python runtimes (~/AppData/Local/Programs/Python), and local project 
-configuration files (.xe, xe.toml). WARNING: This operation is destructive.`,
+Python runtimes (~/AppData/Local/Programs/Python), global cache directories,
+and local project state (.xe, xe.toml). WARNING: This operation is destructive.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		if !forceFlag {
 			pterm.Warning.Println("This will delete all global and local xe data, including:")
-			fmt.Println("- ~/.xe (config, cache, venvs)")
+			fmt.Println("- ~/.xe (config, credentials)")
+			fmt.Println("- ~/AppData/Local/xe/cache or ~/.cache/xe (CAS cache)")
 			fmt.Println("- ~/AppData/Local/Programs/Python (self-installed runtimes)")
 			fmt.Println("- .xe and xe.toml in the current directory")
 			fmt.Print("\nAre you sure you want to proceed? (y/N): ")
@@ -43,6 +44,8 @@ configuration files (.xe, xe.toml). WARNING: This operation is destructive.`,
 		home, _ := os.UserHomeDir()
 		xeGlobalDir := filepath.Join(home, ".xe")
 		removePath(xeGlobalDir, "Global configuration and data")
+		removePath(filepath.Join(home, "AppData", "Local", "xe", "cache"), "Global CAS cache")
+		removePath(filepath.Join(home, ".cache", "xe"), "Global CAS cache")
 
 		// 2. Self-installed Pythons
 		pythonDir := filepath.Join(home, "AppData", "Local", "Programs", "Python")
