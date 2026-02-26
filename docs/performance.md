@@ -1,34 +1,38 @@
-# Performance Engineering
+# Performance
 
-xe is designed for maximum throughput on Windows. Most Python dependency managers are bottlenecked by Python's Global Interpreter Lock (GIL) and sequential I/O operations. xe circumvents these limitations using Go's native concurrency.
+`xe` is optimized around high-throughput package management and predictable install behavior.
 
-## Key Performance Pillars
+## Performance pillars
 
 | Pillar | Implementation | Benefit |
 | :--- | :--- | :--- |
-| **Parallel Resolution** | Uses `pip install --report` (dry-run) to fetch the entire tree in one Go-routine. | 5x faster resolution for deep trees. |
-| **Concurrent Downloads** | Downloads wheels in parallel using a pool of workers sized to your CPU core count. | Maximizes bandwidth utilization. |
-| **Native Extraction** | Direct wheel extraction to `site-packages` using optimized Go libraries. | Faster than the standard `zipfile` module in Python. |
-| **Global Cache** | Content-addressable storage (CAS) in `~/.xe/cache`. | Instant installs for previously downloaded packages. |
+| Parallel resolution | Concurrent dependency solving per requirement | Faster graph construction |
+| Solve cache reuse | Pre-solved graph cache keyed by inputs | Lower repeated resolver cost |
+| Content-addressed artifacts | Blobs keyed by digest | Deduplicated storage and cache hit speed |
+| Download planning | Planned artifact retrieval before install | Reduced redundant transfer |
+| Streamed extraction | Extract wheel content into project target | Lower intermediate filesystem overhead |
+| Project-local install target | `.xe/site-packages` with direct extraction | Fast runtime activation |
 
-## 📊 Benchmark Comparison
+## Cache model
 
-| Metric | pip | uv | **xe** |
-| :--- | :--- | :--- | :--- |
-| Dependency Resolution (Cold) | ~2.5s | ~0.1s | **0.08s** |
-| Parallel Download (10 packages) | ~8s | ~1.5s | **1.2s** |
-| Extraction Speed (per MB) | ~50ms | ~5ms | **4ms** |
+- Global cache root:
+  - Windows: `%LOCALAPPDATA%/xe/cache`
+  - Linux/macOS: `~/.cache/xe`
+- Blobs are keyed by SHA-256.
+- Solve graphs are cached separately from artifact blobs.
 
----
+## Execution pipeline summary
 
-## 🛠️ Technical Details
+1. Parse requirements and project config.
+2. Attempt solve cache hit.
+3. Resolve dependencies in parallel on cache miss.
+4. Build download plan and fill cache from network when needed.
+5. Install artifacts to project `.xe/site-packages`.
+6. Run commands with runtime path wiring.
 
-### Dependency Resolution
-Instead of re-implementing the complex PEP 517/518 logic, `xe` leverages the most stable part of the ecosystem: `pip` itself. By using `--dry-run --report`, `xe` gets a structured JSON of all required files and hashes, which it then processes in parallel.
+## Operational guidance
 
-### Parallelism Control
-`xe` automatically detects your CPU count and scales its worker pool:
-```go
-maxJobs := runtime.NumCPU()
-// Used in DownloadParallel to manage network/disk IO
-```
+- Run `xe lock` after adding packages to keep resolution deterministic.
+- Use `xe sync` in CI to align installs with `xe.toml`.
+- Keep cache warm across builds for best throughput.
+- Prefer shared cache persistence between CI jobs for lower cold-start time.
