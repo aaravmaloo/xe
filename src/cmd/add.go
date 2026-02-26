@@ -13,7 +13,7 @@ import (
 
 var addCmd = &cobra.Command{
 	Use:   "add <package_name>...",
-	Short: "Add one or more packages to the current project (no venv)",
+	Short: "Add one or more packages to the active xe environment",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		wd, err := os.Getwd()
@@ -31,8 +31,22 @@ var addCmd = &cobra.Command{
 			pterm.Error.Printf("Failed to init installer: %v\n", err)
 			return
 		}
-		pterm.Info.Printf("Installing %d requirement(s) with Python %s...\n", len(args), cfg.Python.Version)
-		resolved, err := installer.Install(context.Background(), cfg, args, wd)
+
+		runtimeSel, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+
+		target := "global"
+		if runtimeSel.IsVenv {
+			target = "venv:" + runtimeSel.VenvName
+		}
+		pterm.Info.Printf("Installing %d requirement(s) with Python %s [%s]...\n", len(args), cfg.Python.Version, target)
+		resolved, err := installer.Install(context.Background(), cfg, args, wd, runtimeSel.SitePackages)
 		if err != nil {
 			pterm.Error.Printf("Install failed: %v\n", err)
 			return
@@ -46,10 +60,10 @@ var addCmd = &cobra.Command{
 			cfg.Deps[project.NormalizeDepName(p.Name)] = p.Version
 		}
 		if err := project.Save(tomlPath, cfg); err != nil {
-			pterm.Warning.Printf("Installed but failed updating %s: %v\n", filepath.Base(tomlPath), err)
+			pterm.Warning.Printf("Installed but failed to persist project config (%s): %v\n", filepath.Base(tomlPath), err)
 			return
 		}
-		pterm.Success.Printf("Installed %d package artifact(s) and updated xe.toml\n", len(resolved))
+		pterm.Success.Printf("Installed %d package artifact(s)\n", len(resolved))
 	},
 }
 
