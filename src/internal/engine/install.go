@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -40,7 +41,7 @@ func NewInstaller(globalCacheDir string) (*Installer, error) {
 	}, nil
 }
 
-func (i *Installer) Install(ctx context.Context, cfg project.Config, requirements []string, projectDir string) ([]resolver.Package, error) {
+func (i *Installer) Install(ctx context.Context, cfg project.Config, requirements []string, projectDir string, installSitePackages string) ([]resolver.Package, error) {
 	// CLI Entry -> Config Loader -> Requirements Parser
 	reqs := normalizeRequirements(requirements)
 	if len(reqs) == 0 {
@@ -79,36 +80,64 @@ func (i *Installer) Install(ctx context.Context, cfg project.Config, requirement
 		return downloadPlan[a].Name < downloadPlan[b].Name
 	})
 
-	pm, err := python.NewPythonManager()
-	if err != nil {
-		return nil, err
-	}
-	installSitePackages, err := pm.GetSitePackagesDir(cfg.Python.Version)
-	if err != nil {
-		installSitePackages = filepath.Join(projectDir, ".xe", "site-packages")
+	if strings.TrimSpace(installSitePackages) == "" {
+		pm, pmErr := python.NewPythonManager()
+		if pmErr == nil {
+			site, siteErr := pm.GetSitePackagesDir(cfg.Python.Version)
+			if siteErr == nil {
+				installSitePackages = site
+			}
+		}
+		if strings.TrimSpace(installSitePackages) == "" {
+			installSitePackages = filepath.Join(projectDir, "xe", "site-packages")
+		}
 	}
 
-	// Multi Source Downloader -> Cache System
+	workers := runtime.NumCPU() * 2
+	if workers < 2 {
+		workers = 2
+	}
+	jobs := make(chan resolver.Package)
+	errCh := make(chan error, len(downloadPlan))
+	var wg sync.WaitGroup
+
+	for workerIdx := 0; workerIdx < workers; workerIdx++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for pkg := range jobs {
+				if pkg.DownloadURL == "" {
+					continue
+				}
+				blob, err := i.CAS.StoreBlobFromURL(pkg.DownloadURL, pkg.Hash)
+				if err != nil {
+					errCh <- fmt.Errorf("download %s: %w", pkg.Name, err)
+					continue
+				}
+				if err := installWheelBlob(blob, installSitePackages); err != nil {
+					errCh <- fmt.Errorf("install %s: %w", pkg.Name, err)
+				}
+			}
+		}()
+	}
+
 	for _, pkg := range downloadPlan {
 		select {
 		case <-ctx.Done():
+			close(jobs)
+			wg.Wait()
 			return nil, ctx.Err()
-		default:
-		}
-
-		if pkg.DownloadURL == "" {
-			continue
-		}
-		blob, err := i.CAS.StoreBlobFromURL(pkg.DownloadURL, pkg.Hash)
-		if err != nil {
-			return nil, fmt.Errorf("download %s: %w", pkg.Name, err)
-		}
-		if err := installWheelBlob(blob, installSitePackages); err != nil {
-			return nil, fmt.Errorf("install %s: %w", pkg.Name, err)
+		case jobs <- pkg:
 		}
 	}
+	close(jobs)
+	wg.Wait()
+	close(errCh)
+	if len(errCh) > 0 {
+		return nil, <-errCh
+	}
 
-	// Environment Linker / Post Install Hooks are represented by project site-packages wiring in `xe run`.
+	// Environment Linker / Post Install Hooks are represented by runtime wiring in `xe run`.
 	return graph.Packages, nil
 }
 
