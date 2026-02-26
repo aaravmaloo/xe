@@ -33,6 +33,14 @@ var importCmd = &cobra.Command{
 			pterm.Error.Printf("Failed to init installer: %v\n", err)
 			return
 		}
+		runtimeSel, changed, err := ensureRuntimeForProject(wd, &localCfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(localTomlPath, localCfg)
+		}
 
 		if strings.HasSuffix(path, "xe.toml") {
 			cfg, err := project.Load(path)
@@ -53,7 +61,7 @@ var importCmd = &cobra.Command{
 				}
 				reqs = append(reqs, requirement)
 			}
-			resolved, err := installer.Install(context.Background(), localCfg, reqs, wd)
+			resolved, err := installer.Install(context.Background(), localCfg, reqs, wd, runtimeSel.SitePackages)
 			if err != nil {
 				pterm.Error.Printf("Import failed: %v\n", err)
 				return
@@ -78,7 +86,7 @@ var importCmd = &cobra.Command{
 				pterm.Warning.Println("No installable entries found in requirements file")
 				return
 			}
-			resolved, err := installer.Install(context.Background(), localCfg, reqs, wd)
+			resolved, err := installer.Install(context.Background(), localCfg, reqs, wd, runtimeSel.SitePackages)
 			if err != nil {
 				pterm.Error.Printf("Import failed: %v\n", err)
 				return
