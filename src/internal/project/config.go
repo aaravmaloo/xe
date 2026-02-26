@@ -3,8 +3,8 @@ package project
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
+	"xe/src/internal/xedir"
 
 	"github.com/BurntSushi/toml"
 )
@@ -12,10 +12,12 @@ import (
 const FileName = "xe.toml"
 
 type Config struct {
-	Project ProjectConfig     `toml:"project"`
-	Python  PythonConfig      `toml:"python"`
-	Deps    map[string]string `toml:"deps"`
-	Cache   CacheConfig       `toml:"cache"`
+	Project  ProjectConfig     `toml:"project"`
+	Python   PythonConfig      `toml:"python"`
+	Deps     map[string]string `toml:"deps"`
+	Cache    CacheConfig       `toml:"cache"`
+	Venv     VenvConfig        `toml:"venv"`
+	Settings SettingsConfig    `toml:"settings"`
 }
 
 type ProjectConfig struct {
@@ -31,6 +33,14 @@ type CacheConfig struct {
 	GlobalDir string `toml:"global_dir"`
 }
 
+type VenvConfig struct {
+	Name string `toml:"name"`
+}
+
+type SettingsConfig struct {
+	AutoVenv bool `toml:"autovenv"`
+}
+
 func NewDefault(projectDir string) Config {
 	return Config{
 		Project: ProjectConfig{Name: filepath.Base(projectDir)},
@@ -40,6 +50,8 @@ func NewDefault(projectDir string) Config {
 			Mode:      "global-cas",
 			GlobalDir: defaultGlobalCacheDir(),
 		},
+		Venv:     VenvConfig{},
+		Settings: SettingsConfig{AutoVenv: false},
 	}
 }
 
@@ -96,14 +108,7 @@ func Save(path string, cfg Config) error {
 }
 
 func defaultGlobalCacheDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ".xe-cache"
-	}
-	if runtime.GOOS == "windows" {
-		return filepath.Join(home, "AppData", "Local", "xe", "cache")
-	}
-	return filepath.Join(home, ".cache", "xe")
+	return xedir.CacheDir()
 }
 
 func NormalizeDepName(name string) string {
