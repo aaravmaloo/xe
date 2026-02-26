@@ -14,7 +14,7 @@ var initPythonVersion string
 
 var initCmd = &cobra.Command{
 	Use:   "init [name]",
-	Short: "Initialize a project with xe.toml (no virtualenv)",
+	Short: "Initialize a project with xe.toml",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		name := ""
@@ -36,10 +36,6 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Initializing project at %s...\n", wd)
-		if err := os.MkdirAll(filepath.Join(wd, ".xe", "site-packages"), 0755); err != nil {
-			fmt.Printf("Error: %v\n", err)
-			return
-		}
 
 		pm, _ := python.NewPythonManager()
 
@@ -65,7 +61,7 @@ var initCmd = &cobra.Command{
 		}
 		fmt.Printf("Created %s\n", filepath.Join(wd, project.FileName))
 
-		fmt.Println("Project initialized successfully (no venv).")
+		fmt.Println("Project initialized successfully.")
 	},
 }
 
