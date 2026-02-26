@@ -3,9 +3,9 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"strings"
+	"path/filepath"
+	"xe/src/internal/project"
 	"xe/src/internal/python"
-	"xe/src/internal/venv"
 
 	"github.com/spf13/cobra"
 )
@@ -14,70 +14,58 @@ var initPythonVersion string
 
 var initCmd = &cobra.Command{
 	Use:   "init [name]",
-	Short: "Initialize a new project environment",
+	Short: "Initialize a project with xe.toml (no virtualenv)",
 	Args:  cobra.MaximumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		name := "current"
+		name := ""
 		if len(args) > 0 {
 			name = args[0]
 		}
 
-		fmt.Printf("Initializing project %s...\n", name)
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Printf("Error: %v\n", err)
+			return
+		}
+		if name != "" && name != "." {
+			wd = filepath.Join(wd, name)
+			if err := os.MkdirAll(wd, 0755); err != nil {
+				fmt.Printf("Error: %v\n", err)
+				return
+			}
+		}
 
-		// Create .xe directory in project root if not global
-		xeDir := ".xe"
-		if err := os.MkdirAll(xeDir, 0755); err != nil {
+		fmt.Printf("Initializing project at %s...\n", wd)
+		if err := os.MkdirAll(filepath.Join(wd, ".xe", "site-packages"), 0755); err != nil {
 			fmt.Printf("Error: %v\n", err)
 			return
 		}
 
-		vm, _ := venv.NewVenvManager()
 		pm, _ := python.NewPythonManager()
 
-		// 1. Determine version: Flag > Config > Default
 		version := initPythonVersion
 		if version == "" {
 			version = GetPreferredPythonVersion()
 		}
 
-		pythonExe, err := pm.GetPythonExe(version)
-		if err != nil {
-			// Try to install it if missing
-			if err := pm.Install(version); err == nil {
-				pythonExe, _ = pm.GetPythonExe(version)
+		if _, err := pm.GetPythonExe(version); err != nil {
+			if err := pm.Install(version); err != nil {
+				fmt.Printf("Warning: python install failed: %v\n", err)
 			}
 		}
 
-		// Create basic xe.toml if it doesn't exist
-		tomlPath := "xe.toml"
-		if _, err := os.Stat(tomlPath); os.IsNotExist(err) {
-			content := fmt.Sprintf(`[python]
-version = "%s"
-abi = "cp%s"
-
-[venv]
-name = "%s"
-
-[platform]
-os = "windows"
-arch = "x86_64"
-
-[deps]
-`, version, strings.ReplaceAll(version, ".", ""), name)
-			os.WriteFile(tomlPath, []byte(content), 0644)
-			fmt.Println("Created xe.toml")
+		cfg := project.NewDefault(wd)
+		if cfg.Project.Name == "" {
+			cfg.Project.Name = filepath.Base(wd)
 		}
-
-		if pythonExe != "" {
-			if err := vm.Create(name, pythonExe); err != nil {
-				fmt.Printf("Note: Venv %s already exists or couldn't be created: %v\n", name, err)
-			} else {
-				fmt.Printf("Created centralized venv: %s (Python %s)\n", name, version)
-			}
+		cfg.Python.Version = version
+		if err := project.Save(filepath.Join(wd, project.FileName), cfg); err != nil {
+			fmt.Printf("Error writing xe.toml: %v\n", err)
+			return
 		}
+		fmt.Printf("Created %s\n", filepath.Join(wd, project.FileName))
 
-		fmt.Println("Project initialized successfully.")
-		fmt.Printf("To activate, run: xe venv activate %s\n", name)
+		fmt.Println("Project initialized successfully (no venv).")
 	},
 }
 
