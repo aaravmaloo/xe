@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"xe/src/internal/utils"
-	"xe/src/internal/venv"
 
 	"github.com/codeclysm/extract/v3"
 	"github.com/pterm/pterm"
@@ -72,7 +74,7 @@ func (m *PythonManager) Install(version string) error {
 		case version == "3.13" || strings.HasPrefix(version, "3.13"):
 			fullVersion = "3.13.0"
 		default:
-			fullVersion = version
+			fullVersion = resolveLatestPatchVersion(version)
 		}
 	} else {
 		// Linux mapping for python-build-standalone (Release 20241016)
@@ -88,7 +90,7 @@ func (m *PythonManager) Install(version string) error {
 		case strings.HasPrefix(version, "3.13"):
 			fullVersion = "3.13.0"
 		default:
-			fullVersion = version
+			fullVersion = resolveLatestPatchVersion(version)
 		}
 	}
 
@@ -182,6 +184,79 @@ func (m *PythonManager) Install(version string) error {
 	}
 
 	return nil
+}
+
+func resolveLatestPatchVersion(version string) string {
+	parts := strings.Split(version, ".")
+	if len(parts) >= 3 {
+		return version
+	}
+	if len(parts) != 2 {
+		return version
+	}
+
+	base := "https://www.python.org/ftp/python/"
+	resp, err := http.Get(base)
+	if err != nil {
+		return version + ".0"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return version + ".0"
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return version + ".0"
+	}
+
+	re := regexp.MustCompile(`href="(\d+\.\d+\.\d+)/"`)
+	matches := re.FindAllStringSubmatch(string(body), -1)
+	candidates := make([]string, 0, len(matches))
+	prefix := version + "."
+	for _, m := range matches {
+		if len(m) < 2 {
+			continue
+		}
+		v := m[1]
+		if strings.HasPrefix(v, prefix) {
+			candidates = append(candidates, v)
+		}
+	}
+	if len(candidates) == 0 {
+		return version + ".0"
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return compareVersion(candidates[i], candidates[j]) > 0
+	})
+	return candidates[0]
+}
+
+func compareVersion(a, b string) int {
+	pa := strings.Split(a, ".")
+	pb := strings.Split(b, ".")
+	n := len(pa)
+	if len(pb) > n {
+		n = len(pb)
+	}
+	for i := 0; i < n; i++ {
+		va := 0
+		vb := 0
+		if i < len(pa) {
+			va, _ = strconv.Atoi(pa[i])
+		}
+		if i < len(pb) {
+			vb, _ = strconv.Atoi(pb[i])
+		}
+		if va > vb {
+			return 1
+		}
+		if va < vb {
+			return -1
+		}
+	}
+	return 0
 }
 
 func (m *PythonManager) patchPthFile(pythonDir string) error {
@@ -300,20 +375,6 @@ func (m *PythonManager) GetEffectivePythonExe(version string) (string, error) {
 	libRoot, _ := m.GetLibRoot(version)
 	if libRoot != "" {
 		m.patchPthFile(libRoot)
-	}
-
-	vm, _ := venv.NewVenvManager()
-	activeVenv := vm.GetActiveVenv()
-	if activeVenv != "" {
-		var venvExe string
-		if runtime.GOOS == "windows" {
-			venvExe = filepath.Join(activeVenv, "Scripts", "python.exe")
-		} else {
-			venvExe = filepath.Join(activeVenv, "bin", "python")
-		}
-		if _, err := os.Stat(venvExe); err == nil {
-			return venvExe, nil
-		}
 	}
 	return m.GetPythonExe(version)
 }
