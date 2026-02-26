@@ -8,14 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"xe/src/internal/xedir"
 )
 
 func CreateSnapshot(name string) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-	xeDir := filepath.Join(home, ".xe")
+	xeDir := xedir.MustHome()
 	snapsDir := filepath.Join(xeDir, "snaps")
 	if err := os.MkdirAll(snapsDir, 0755); err != nil {
 		return err
@@ -23,12 +20,12 @@ func CreateSnapshot(name string) error {
 
 	snapPath := filepath.Join(snapsDir, fmt.Sprintf("%s_%d.zip", name, time.Now().Unix()))
 
-	// Create zip of the .xe directory (excluding snaps themselves)
+	// Create zip of the xe home directory (excluding snaps themselves)
 	return zipDirectory(xeDir, snapPath, []string{"snaps"})
 }
 
 func RestoreSnapshot(name string) error {
-	// Logic to unzip and replace current .xe state
+	// Logic to unzip and replace current xe state
 	return nil
 }
 
