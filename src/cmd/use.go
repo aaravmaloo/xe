@@ -7,6 +7,7 @@ import (
 	"xe/src/internal/project"
 	"xe/src/internal/python"
 	"xe/src/internal/utils"
+	"xe/src/internal/xedir"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -38,7 +39,7 @@ var useCmd = &cobra.Command{
 		}
 
 		// 3. Persistent choice: Create or update local xe.toml
-		pterm.Info.Println("Saving version preference to xe.toml...")
+		pterm.Info.Println("Saving Python version preference...")
 		wd, _ := os.Getwd()
 		cfg, tomlPath, err := project.LoadOrCreate(wd)
 		if err != nil {
@@ -49,7 +50,7 @@ var useCmd = &cobra.Command{
 		if err := project.Save(tomlPath, cfg); err != nil {
 			pterm.Error.Printf("Failed to save xe.toml: %v\n", err)
 		} else {
-			pterm.Success.Printf("Project now locked to Python %s in xe.toml\n", version)
+			pterm.Success.Printf("Project now uses Python %s\n", version)
 		}
 
 		// 4. Global default (if -d flag passed)
@@ -57,8 +58,7 @@ var useCmd = &cobra.Command{
 			pterm.Info.Println("Updating global default...")
 			viper.Set("default_python", version)
 
-			home, _ := os.UserHomeDir()
-			configPath := filepath.Join(home, ".xe", "config.yaml")
+			configPath := xedir.ConfigFile()
 			os.MkdirAll(filepath.Dir(configPath), 0755)
 
 			if err := viper.WriteConfigAs(configPath); err != nil {
