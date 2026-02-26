@@ -3,7 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"xe/src/internal/xedir"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -15,9 +15,9 @@ var rootCmd = &cobra.Command{
 	Use:   "xe",
 	Short: "xe is a Go-style Python toolchain manager with global CAS caching",
 	Long: `xe provides a unified environment for managing Python versions, 
-package dependencies, and execution with a no-virtualenv architecture.
-Each project stores its configuration in xe.toml while package artifacts are
-cached globally in a content-addressed store.`,
+package dependencies, and execution across global or xe-managed virtual
+environments. Projects store configuration in xe.toml while package artifacts
+are cached globally in a content-addressed store.`,
 }
 
 func Execute() {
@@ -29,21 +29,14 @@ func Execute() {
 
 func init() {
 	cobra.OnInitialize(initConfig)
-	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.xe/config.yaml)")
+	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is xe global config)")
 }
 
 func initConfig() {
 	if cfgFile != "" {
 		viper.SetConfigFile(cfgFile)
 	} else {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			fmt.Println(err)
-			os.Exit(1)
-		}
-
-		viper.AddConfigPath(filepath.Join(home, ".xe"))
-		viper.SetConfigName("config")
+		viper.SetConfigFile(xedir.ConfigFile())
 	}
 
 	viper.AutomaticEnv()
