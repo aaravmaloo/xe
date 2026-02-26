@@ -3,44 +3,44 @@ package cmd
 import (
 	"os"
 	"os/exec"
-	"xe/src/internal/venv"
+	"path/filepath"
+	"xe/src/internal/python"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
 
 var shellCmd = &cobra.Command{
-	Use:   "shell [venv_name]",
-	Short: "Enter a new shell with the virtual environment activated",
-	Args:  cobra.MaximumNArgs(1),
+	Use:   "shell",
+	Short: "Enter a shell configured for the current xe project (no venv)",
+	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		vm, _ := venv.NewVenvManager()
-		venvName := ""
-
-		if len(args) > 0 {
-			venvName = args[0]
-		} else {
-			// Try to find from local xe.toml
-			// (Simplified: we'll just check if a venv named 'current' exists or similar)
-			venvName = "current"
-		}
-
-		activateScript := vm.GetActivateScript(venvName)
-		if _, err := os.Stat(activateScript); os.IsNotExist(err) {
-			pterm.Error.Printf("Virtual environment '%s' not found. Create it first with 'xe venv create %s'\n", venvName, venvName)
+		pm, _ := python.NewPythonManager()
+		exe, err := pm.GetEffectivePythonExe(GetPreferredPythonVersion())
+		if err != nil {
+			pterm.Error.Printf("Python unavailable: %v\n", err)
 			return
 		}
+		wd, _ := os.Getwd()
+		projectSite := filepath.Join(wd, ".xe", "site-packages")
+		_ = os.MkdirAll(projectSite, 0755)
+		pythonRoot := filepath.Dir(exe)
+		path := filepath.Join(pythonRoot, "Scripts")
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			path = filepath.Join(pythonRoot, "bin")
+		}
 
-		pterm.Info.Printf("Entering shell with venv '%s' activated...\n", venvName)
+		pterm.Info.Println("Entering xe project shell...")
 		pterm.Info.Println("Type 'exit' to return to normal shell.")
-
-		// On Windows, we spawn a new cmd.exe that runs the activate.bat first
-		shell := exec.Command("cmd.exe", "/K", activateScript)
-		shell.Stdin = os.Stdin
-		shell.Stdout = os.Stdout
-		shell.Stderr = os.Stderr
-
-		if err := shell.Run(); err != nil {
+		c := exec.Command("cmd.exe")
+		c.Stdin = os.Stdin
+		c.Stdout = os.Stdout
+		c.Stderr = os.Stderr
+		c.Env = append(os.Environ(),
+			"PYTHONPATH="+projectSite,
+			"PATH="+path+string(os.PathListSeparator)+pythonRoot+string(os.PathListSeparator)+os.Getenv("PATH"),
+		)
+		if err := c.Run(); err != nil {
 			pterm.Error.Printf("Failed to spawn shell: %v\n", err)
 		}
 	},
