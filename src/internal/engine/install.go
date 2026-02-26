@@ -12,6 +12,7 @@ import (
 	"sync"
 	"xe/src/internal/cache"
 	"xe/src/internal/project"
+	"xe/src/internal/python"
 	"xe/src/internal/resolver"
 
 	"github.com/codeclysm/extract/v3"
@@ -78,6 +79,15 @@ func (i *Installer) Install(ctx context.Context, cfg project.Config, requirement
 		return downloadPlan[a].Name < downloadPlan[b].Name
 	})
 
+	pm, err := python.NewPythonManager()
+	if err != nil {
+		return nil, err
+	}
+	installSitePackages, err := pm.GetSitePackagesDir(cfg.Python.Version)
+	if err != nil {
+		installSitePackages = filepath.Join(projectDir, ".xe", "site-packages")
+	}
+
 	// Multi Source Downloader -> Cache System
 	for _, pkg := range downloadPlan {
 		select {
@@ -93,7 +103,7 @@ func (i *Installer) Install(ctx context.Context, cfg project.Config, requirement
 		if err != nil {
 			return nil, fmt.Errorf("download %s: %w", pkg.Name, err)
 		}
-		if err := installWheelBlob(blob, projectDir); err != nil {
+		if err := installWheelBlob(blob, installSitePackages); err != nil {
 			return nil, fmt.Errorf("install %s: %w", pkg.Name, err)
 		}
 	}
@@ -131,8 +141,7 @@ func (i *Installer) resolveParallel(ctx context.Context, pythonVersion string, r
 	return all, nil
 }
 
-func installWheelBlob(blobPath, projectDir string) error {
-	sitePackages := filepath.Join(projectDir, ".xe", "site-packages")
+func installWheelBlob(blobPath, sitePackages string) error {
 	if err := os.MkdirAll(sitePackages, 0755); err != nil {
 		return err
 	}
