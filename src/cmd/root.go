@@ -13,10 +13,11 @@ var cfgFile string
 
 var rootCmd = &cobra.Command{
 	Use:   "xe",
-	Short: "xe is an extremely fast Python package and project manager for Windows",
+	Short: "xe is a Go-style Python toolchain manager with global CAS caching",
 	Long: `xe provides a unified environment for managing Python versions, 
-virtual environments, and package dependencies with a focus on speed and 
-determinism for Windows users.`,
+package dependencies, and execution with a no-virtualenv architecture.
+Each project stores its configuration in xe.toml while package artifacts are
+cached globally in a content-addressed store.`,
 }
 
 func Execute() {
