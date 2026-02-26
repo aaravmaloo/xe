@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+	"os/exec"
 	"sort"
 	"strings"
 	"xe/src/internal/project"
@@ -13,28 +14,48 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type pipPkg struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
+
 var listCmd = &cobra.Command{
 	Use:   "list",
-	Short: "List dependencies from xe.toml",
+	Short: "List installed packages from the active xe environment",
 	Run: func(cmd *cobra.Command, args []string) {
 		wd, _ := os.Getwd()
-		cfg, _, err := project.LoadOrCreate(wd)
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
 		if err != nil {
-			pterm.Error.Printf("Failed to load project: %v\n", err)
+			pterm.Error.Printf("Failed to load project config: %v\n", err)
 			return
 		}
-		if len(cfg.Deps) == 0 {
-			pterm.Info.Println("No dependencies in xe.toml")
+		rt, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
 			return
 		}
-		keys := make([]string, 0, len(cfg.Deps))
-		for k := range cfg.Deps {
-			keys = append(keys, k)
+		if changed {
+			_ = project.Save(tomlPath, cfg)
 		}
-		sort.Strings(keys)
+
+		out, err := exec.Command(rt.PythonExe, "-m", "pip", "list", "--format", "json").CombinedOutput()
+		if err != nil {
+			pterm.Error.Printf("Failed to list packages: %v\n", err)
+			if len(out) > 0 {
+				fmt.Println(string(out))
+			}
+			return
+		}
+
+		var pkgs []pipPkg
+		if err := json.Unmarshal(out, &pkgs); err != nil {
+			pterm.Error.Printf("Failed to parse package list: %v\n", err)
+			return
+		}
+		sort.Slice(pkgs, func(i, j int) bool { return strings.ToLower(pkgs[i].Name) < strings.ToLower(pkgs[j].Name) })
 		data := pterm.TableData{{"Package", "Version"}}
-		for _, k := range keys {
-			data = append(data, []string{k, cfg.Deps[k]})
+		for _, p := range pkgs {
+			data = append(data, []string{p.Name, p.Version})
 		}
 		_ = pterm.DefaultTable.WithHasHeader().WithData(data).Render()
 	},
@@ -60,7 +81,7 @@ var checkCmd = &cobra.Command{
 
 var removeCmd = &cobra.Command{
 	Use:   "remove <package_name>...",
-	Short: "Remove one or more packages from xe.toml and project site-packages",
+	Short: "Remove one or more packages from the active xe environment",
 	Args:  cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		wd, _ := os.Getwd()
@@ -69,28 +90,76 @@ var removeCmd = &cobra.Command{
 			pterm.Error.Printf("Failed to load project: %v\n", err)
 			return
 		}
-		isRemoveAll := len(args) == 1 && args[0] == "all"
+		rt, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+
+		isRemoveAll := len(args) == 1 && strings.EqualFold(args[0], "all")
 		if isRemoveAll {
-			cfg.Deps = map[string]string{}
-			_ = os.RemoveAll(filepath.Join(wd, ".xe", "site-packages"))
-			_ = os.MkdirAll(filepath.Join(wd, ".xe", "site-packages"), 0755)
-			if err := project.Save(tomlPath, cfg); err != nil {
-				pterm.Error.Printf("Failed to save xe.toml: %v\n", err)
+			out, err := exec.Command(rt.PythonExe, "-m", "pip", "list", "--format", "json").CombinedOutput()
+			if err != nil {
+				pterm.Error.Printf("Failed to list packages: %v\n", err)
+				if len(out) > 0 {
+					fmt.Println(string(out))
+				}
 				return
 			}
-			pterm.Success.Println("Removed all project packages")
+			var pkgs []pipPkg
+			if err := json.Unmarshal(out, &pkgs); err != nil {
+				pterm.Error.Printf("Failed to parse package list: %v\n", err)
+				return
+			}
+			toRemove := []string{}
+			for _, p := range pkgs {
+				n := strings.ToLower(p.Name)
+				if n == "pip" || n == "setuptools" || n == "wheel" {
+					continue
+				}
+				toRemove = append(toRemove, p.Name)
+			}
+			if len(toRemove) > 0 {
+				uninstallArgs := append([]string{"-m", "pip", "uninstall", "-y"}, toRemove...)
+				if out, err := exec.Command(rt.PythonExe, uninstallArgs...).CombinedOutput(); err != nil {
+					pterm.Error.Printf("Failed to remove all packages: %v\n%s", err, string(out))
+					return
+				}
+			}
+			cfg.Deps = map[string]string{}
+			if err := project.Save(tomlPath, cfg); err != nil {
+				pterm.Warning.Printf("Packages removed but failed to update project config: %v\n", err)
+			}
+			pterm.Success.Println("Removed all packages from active environment")
 			return
 		}
 
+		reqNames := []string{}
 		for _, raw := range args {
-			name := strings.Split(raw, "==")[0]
-			delete(cfg.Deps, project.NormalizeDepName(name))
+			n := requirementToDepName(raw)
+			if n != "" {
+				reqNames = append(reqNames, n)
+			}
 		}
-		if err := project.Save(tomlPath, cfg); err != nil {
-			pterm.Error.Printf("Failed to save xe.toml: %v\n", err)
+		if len(reqNames) == 0 {
+			pterm.Error.Println("No valid package names provided")
 			return
 		}
-		pterm.Success.Printf("Removed %d package reference(s); run `xe sync` to reconcile installs\n", len(args))
+		uninstallArgs := append([]string{"-m", "pip", "uninstall", "-y"}, reqNames...)
+		if out, err := exec.Command(rt.PythonExe, uninstallArgs...).CombinedOutput(); err != nil {
+			pterm.Error.Printf("Failed to remove packages: %v\n%s", err, string(out))
+			return
+		}
+		for _, n := range reqNames {
+			delete(cfg.Deps, n)
+		}
+		if err := project.Save(tomlPath, cfg); err != nil {
+			pterm.Warning.Printf("Removed packages but failed to update project config: %v\n", err)
+		}
+		pterm.Success.Printf("Removed %d package(s)\n", len(reqNames))
 	},
 }
 
