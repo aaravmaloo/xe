@@ -1,0 +1,16 @@
+site_name: xe
+site_description: Complete xe documentation
+repo_name: xe
+docs_dir: docs
+theme:
+  name: mkdocs
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Configuration: configuration.md
+  - Workflows: workflows.md
+  - Architecture: architecture.md
+  - Command Reference: commands.md
+  - Performance: performance.md
+  - Security: security.md
+  - Troubleshooting: troubleshooting.md
