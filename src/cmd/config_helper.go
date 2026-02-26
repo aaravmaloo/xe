@@ -11,7 +11,7 @@ import (
 // GetPreferredPythonVersion resolves the version to use for the current project context.
 // Resolution order:
 // 1. xe.toml (current directory)
-// 2. Global xe config (~/.xe/config.yaml)
+// 2. Global xe config
 // 3. Fallback default (3.12.1)
 func GetPreferredPythonVersion() string {
 	// 1. Check local xe.toml
