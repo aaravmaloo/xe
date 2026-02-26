@@ -1,13 +1,16 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
-	"xe/src/internal/resolver"
+	"xe/src/internal/engine"
+	"xe/src/internal/project"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 var importCmd = &cobra.Command{
@@ -19,44 +22,40 @@ var importCmd = &cobra.Command{
 		pterm.Info.Printf("Importing from %s...\n", path)
 
 		if strings.HasSuffix(path, "xe.toml") {
-			v := viper.New()
-			v.SetConfigFile(path)
-			if err := v.ReadInConfig(); err != nil {
-				pterm.Error.Printf("Failed to read %s: %v\n", path, err)
+			cfg, err := project.Load(path)
+			if err != nil {
+				pterm.Error.Printf("Failed to read %s: %v\n", filepath.Base(path), err)
 				return
 			}
-
-			deps := v.GetStringMapString("deps")
+			deps := cfg.Deps
 			if deps == nil || len(deps) == 0 {
 				pterm.Warning.Println("No dependencies found in [deps] section")
 				return
 			}
-
-			version := GetPreferredPythonVersion()
-			res := resolver.NewResolver()
-
-			pterm.Info.Printf("Installing %d dependencies from %s...\n", len(deps), path)
-
+			wd, _ := os.Getwd()
+			localCfg, _, err := project.LoadOrCreate(wd)
+			if err != nil {
+				pterm.Error.Printf("Failed to load local xe.toml: %v\n", err)
+				return
+			}
+			installer, err := engine.NewInstaller(localCfg.Cache.GlobalDir)
+			if err != nil {
+				pterm.Error.Printf("Failed to init installer: %v\n", err)
+				return
+			}
+			reqs := make([]string, 0, len(deps))
 			for pkgName, pkgVersion := range deps {
-				// We call Resolve with version string if available, or just name
 				requirement := pkgName
-				if pkgVersion != "" {
+				if pkgVersion != "" && pkgVersion != "*" {
 					requirement = fmt.Sprintf("%s==%s", pkgName, pkgVersion)
 				}
-
-				pterm.Info.Printf("Resolving %s...\n", requirement)
-				packages, err := res.Resolve(requirement, version)
-				if err != nil {
-					pterm.Error.Printf("Failed to resolve %s: %v\n", requirement, err)
-					continue
-				}
-
-				if err := res.DownloadParallel(packages, version); err != nil {
-					pterm.Error.Printf("Failed to install %s: %v\n", requirement, err)
-					continue
-				}
-				pterm.Success.Printf("Successfully imported %s\n", pkgName)
+				reqs = append(reqs, requirement)
 			}
+			if _, err := installer.Install(context.Background(), localCfg, reqs, wd); err != nil {
+				pterm.Error.Printf("Import failed: %v\n", err)
+				return
+			}
+			pterm.Success.Printf("Imported %d dependencies into current project\n", len(reqs))
 		} else {
 			pterm.Warning.Println("Import currently only supports xe.toml files")
 		}
@@ -69,8 +68,18 @@ var exportCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		path := args[0]
-		fmt.Printf("Exporting cache to %s...\n", path)
-		// Logic to zip the current cache/env
+		wd, _ := os.Getwd()
+		cfg, _, err := project.LoadOrCreate(wd)
+		if err != nil {
+			pterm.Error.Printf("Failed to load project: %v\n", err)
+			return
+		}
+		content := fmt.Sprintf("cache_mode=%s\ncache_dir=%s\n", cfg.Cache.Mode, cfg.Cache.GlobalDir)
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			pterm.Error.Printf("Failed to export: %v\n", err)
+			return
+		}
+		pterm.Success.Printf("Exported cache metadata to %s\n", path)
 	},
 }
 
