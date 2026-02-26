@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"xe/src/internal/python"
+	"xe/src/internal/project"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -12,35 +12,32 @@ import (
 
 var runCmd = &cobra.Command{
 	Use:                "run -- [command]",
-	Short:              "Run a command in the project environment (no venv)",
+	Short:              "Run a command in the active xe environment",
 	DisableFlagParsing: true,
 	Run: func(cmd *cobra.Command, args []string) {
-		pm, _ := python.NewPythonManager()
-
-		pythonVersion := GetPreferredPythonVersion()
-		pythonExe, err := pm.GetEffectivePythonExe(pythonVersion)
+		wd, _ := os.Getwd()
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
 		if err != nil {
-			pterm.Error.Printf("Python %s is not available: %v\n", pythonVersion, err)
+			pterm.Error.Printf("Failed to load project config: %v\n", err)
 			return
 		}
-		pythonRoot := filepath.Dir(pythonExe)
-		wd, _ := os.Getwd()
-		projectSite := filepath.Join(wd, ".xe", "site-packages")
-		_ = os.MkdirAll(projectSite, 0755)
+		if cfg.Python.Version == "" {
+			cfg.Python.Version = GetPreferredPythonVersion()
+		}
+		runtimeSel, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+		pythonRoot := runtimeSel.ActivationPath
 
 		env := os.Environ()
-
-		// No venv. We inject project site-packages with PYTHONPATH.
-		pyPathFound := false
-		for i, e := range env {
-			if len(e) > 11 && e[:11] == "PYTHONPATH=" {
-				env[i] = "PYTHONPATH=" + projectSite + string(os.PathListSeparator) + e[11:]
-				pyPathFound = true
-				break
-			}
-		}
-		if !pyPathFound {
-			env = append(env, "PYTHONPATH="+projectSite)
+		if runtimeSel.IsVenv {
+			venvRoot := filepath.Dir(filepath.Dir(runtimeSel.PythonExe))
+			env = append(env, "VIRTUAL_ENV="+venvRoot)
 		}
 
 		scriptsDir := filepath.Join(pythonRoot, "Scripts")
@@ -82,9 +79,7 @@ var runCmd = &cobra.Command{
 		remainingArgs := commandArgs[1:]
 
 		if commandName == "python" || commandName == "python.exe" {
-			if exe, err := pm.GetEffectivePythonExe(pythonVersion); err == nil {
-				commandName = exe
-			}
+			commandName = runtimeSel.PythonExe
 		}
 
 		c := exec.Command(commandName, remainingArgs...)
