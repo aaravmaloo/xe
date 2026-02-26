@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -21,7 +20,7 @@ var syncCmd = &cobra.Command{
 	Short: "Sync installed packages with xe.toml",
 	Run: func(cmd *cobra.Command, args []string) {
 		wd, _ := os.Getwd()
-		cfg, _, err := project.LoadOrCreate(wd)
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
 		if err != nil {
 			pterm.Error.Printf("Failed to load project: %v\n", err)
 			return
@@ -39,7 +38,15 @@ var syncCmd = &cobra.Command{
 			pterm.Error.Printf("Failed to init installer: %v\n", err)
 			return
 		}
-		if _, err := installer.Install(context.Background(), cfg, reqs, wd); err != nil {
+		runtimeSel, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+		if _, err := installer.Install(context.Background(), cfg, reqs, wd, runtimeSel.SitePackages); err != nil {
 			pterm.Error.Printf("Sync failed: %v\n", err)
 			return
 		}
@@ -70,7 +77,15 @@ var lockCmd = &cobra.Command{
 			pterm.Error.Printf("Failed to init installer: %v\n", err)
 			return
 		}
-		resolved, err := installer.Install(context.Background(), cfg, reqs, wd)
+		runtimeSel, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+		resolved, err := installer.Install(context.Background(), cfg, reqs, wd, runtimeSel.SitePackages)
 		if err != nil {
 			pterm.Error.Printf("Lock failed: %v\n", err)
 			return
@@ -385,7 +400,20 @@ var toolDirCmd = &cobra.Command{
 	Short: "Show project tool directory",
 	Run: func(cmd *cobra.Command, args []string) {
 		wd, _ := os.Getwd()
-		fmt.Println(filepath.Join(wd, ".xe", "site-packages"))
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
+		if err != nil {
+			pterm.Error.Printf("Failed to load project: %v\n", err)
+			return
+		}
+		rt, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Failed to prepare runtime: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+		fmt.Println(rt.SitePackages)
 	},
 }
 
