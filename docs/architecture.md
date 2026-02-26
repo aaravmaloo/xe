@@ -1,41 +1,79 @@
 # Architecture & Internals
 
-`xe` is built as a native Go application, optimized for the Windows operating system.
+`xe` now follows a cache-first, no-virtualenv pipeline.
 
 ## System Overview
 
 ```mermaid
-graph TD
-    CLI[xe CLI] --> Resolver[Parallel Resolver]
-    Resolver --> PM[Python Manager]
-    Resolver --> VM[Venv Manager]
-    PM --> Shim[Native Shims]
-    Resolver --> Cache[Global CAS Cache]
-    CLI --> Security[Windows Credential Manager]
+flowchart TD
+    A[CLI Entry xe install] --> B[Config Loader]
+    B --> C[Requirements Parser]
+    C --> D{Resolve Cache Hit}
+
+    D -->|No| E[Parallel Dependency Resolver]
+    E --> F[Speculative Solve Engine]
+    F --> G[Store Solution Cache]
+    G --> H[Load Pre-Solved Graph]
+
+    D -->|Yes| H
+    H --> I[Predictive Scheduler]
+    I --> J[Download Planner]
+    J --> K[Multi Source Downloader]
+
+    K --> L[Chunk Manager]
+    L --> M[Connection Pool]
+    M --> N[Download Streams]
+    N --> O{Cache System / Is Global Cache}
+
+    O -->|No| P[Fetch from Network]
+    P --> Q[Store in CAS Cache]
+    Q --> R[Write to Content Store]
+    R --> S[Hash Verify]
+    S --> T[Streaming Extractor]
+
+    O -->|Yes| U[Hardlink from Cache]
+    U --> T
+
+    T --> V[Parallel Decompressor]
+    V --> W[Memory Mapped Files]
+    W --> X[Zero Copy Installer]
+    X --> Y[Atomic File Commit]
+    Y --> Z[Environment Linker]
+    Z --> AA[Post Install Hooks]
+    AA --> AB[Done]
 ```
+
+## Key Rules
+
+- One `xe.toml` per project.
+- No virtual environments.
+- Global, shared CAS cache outside project directories.
+- Project runtime exposure is done by wiring `.xe/site-packages` into `PYTHONPATH`.
+
+## Core Components
+
+| Component | Responsibility |
+| :--- | :--- |
+| CLI layer (`src/cmd`) | Command parsing, UX, orchestration |
+| Project config (`internal/project`) | Load/save `xe.toml`, defaults, dependency map |
+| Resolver (`internal/resolver`) | Resolve package metadata and dependency artifacts |
+| Install engine (`internal/engine`) | Execute solve/download/install pipeline |
+| Cache (`internal/cache`) | CAS blobs and solve graph metadata |
+| Python manager (`internal/python`) | Runtime install/discovery and invocation |
+| Security (`internal/security`) | Token save/load/revoke abstractions |
+
+## Install Target Model
+
+- Runtime packages are installed to `.xe/site-packages` per project.
+- Global shared cache stores wheel blobs and solve metadata.
+- Execution (`xe run`, `xe shell`) injects project package path into process environment.
 
 ## File System Layout
 
 | Path | Purpose |
 | :--- | :--- |
-| `~/.xe/bin` | Contains shims for `python`, `pip`, and `xe`. |
-| `~/.xe/runtimes` | Installed Python versions. |
-| `~/.xe/cache` | Content-addressable wheel cache (SHA-256). |
-| `~/.xe/config.yaml` | Global configuration settings. |
-
-## Security
-
-`xe` does not store plaintext tokens in `.env` or config files.
-
-- **Windows**: Integrates with the **Windows Data Protection API (DPAPI)** via the Credential Manager.
-- **Linux**: Uses a secure file-based storage in `~/.xe/credentials` with restricted permissions (0600).
-
-This ensures that your credentials are encrypted or restricted to your user account.
-
-## Platform Support
-
-| Platform | Python Storage | Shim Method | Security Native |
-| :--- | :--- | :--- | :--- |
-| **Windows** | `AppData/Local/Programs/Python` | `.bat` shims | Windows Credential Manager |
-| **Linux** | `~/.xe/python` | Shell shims | Restricted file storage |
-
+| `./xe.toml` | Project config and dependency lock surface |
+| `./.xe/site-packages` | Project-local installed artifacts |
+| `%LOCALAPPDATA%/xe/cache` (Windows) | Global CAS cache |
+| `~/.cache/xe` (Linux/macOS) | Global CAS cache |
+| `~/.xe/config.yaml` | Global defaults |
