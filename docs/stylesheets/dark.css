@@ -1,0 +1,59 @@
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+[data-md-color-scheme],
+.md-container,
+.md-main,
+.md-main__inner,
+.md-content,
+.md-sidebar {
+  background-color: #0a0d12 !important;
+  color: #d7dde8 !important;
+}
+
+.md-header,
+.md-tabs,
+.md-nav__title,
+.md-search__form,
+.md-footer {
+  background-color: #0f141c !important;
+  color: #d7dde8 !important;
+}
+
+a,
+.md-nav__link,
+.md-typeset a {
+  color: #78b7ff !important;
+}
+
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3,
+.md-typeset h4,
+.md-typeset h5 {
+  color: #f1f5ff !important;
+}
+
+.md-typeset code,
+.md-typeset pre,
+.md-typeset .highlight {
+  background-color: #111827 !important;
+  color: #d1e3ff !important;
+  border-color: #1f2937 !important;
+}
+
+.md-typeset table:not([class]) {
+  border-color: #253244 !important;
+}
+
+.md-typeset table:not([class]) th,
+.md-typeset table:not([class]) td {
+  border-color: #253244 !important;
+}
+
+.md-typeset table:not([class]) tr:hover {
+  background-color: #0f1622 !important;
+}
