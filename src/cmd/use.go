@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"xe/src/internal/project"
 	"xe/src/internal/python"
 	"xe/src/internal/utils"
 
@@ -36,21 +37,16 @@ var useCmd = &cobra.Command{
 			return
 		}
 
-		// 3. Persistent choice: Create or Update local xe.toml
+		// 3. Persistent choice: Create or update local xe.toml
 		pterm.Info.Println("Saving version preference to xe.toml...")
-		v := viper.New()
-		v.SetConfigFile("xe.toml")
-		v.ReadInConfig() // Ignore error if it doesn't exist
-		v.Set("python.version", version)
-
-		// If it's a new file, add some defaults
-		if _, err := os.Stat("xe.toml"); os.IsNotExist(err) {
-			v.Set("venv.name", "current")
-			v.Set("platform.os", "windows")
-			v.Set("platform.arch", "x86_64")
+		wd, _ := os.Getwd()
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
+		if err != nil {
+			pterm.Error.Printf("Failed to load xe.toml: %v\n", err)
+			return
 		}
-
-		if err := v.WriteConfigAs("xe.toml"); err != nil {
+		cfg.Python.Version = version
+		if err := project.Save(tomlPath, cfg); err != nil {
 			pterm.Error.Printf("Failed to save xe.toml: %v\n", err)
 		} else {
 			pterm.Success.Printf("Project now locked to Python %s in xe.toml\n", version)
