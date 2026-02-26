@@ -5,7 +5,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"xe/src/internal/python"
-	"xe/src/internal/venv"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -13,41 +12,43 @@ import (
 
 var runCmd = &cobra.Command{
 	Use:                "run -- [command]",
-	Short:              "Run a command within the project's virtual environment",
+	Short:              "Run a command in the project environment (no venv)",
 	DisableFlagParsing: true,
 	Run: func(cmd *cobra.Command, args []string) {
-		vm, _ := venv.NewVenvManager()
 		pm, _ := python.NewPythonManager()
 
-		// 1. Resolve environment
 		pythonVersion := GetPreferredPythonVersion()
-		globalPath := pm.GetPythonPath(pythonVersion)
-		effectivePath := vm.GetEffectivePythonPath(globalPath)
+		pythonExe, err := pm.GetEffectivePythonExe(pythonVersion)
+		if err != nil {
+			pterm.Error.Printf("Python %s is not available: %v\n", pythonVersion, err)
+			return
+		}
+		pythonRoot := filepath.Dir(pythonExe)
+		wd, _ := os.Getwd()
+		projectSite := filepath.Join(wd, ".xe", "site-packages")
+		_ = os.MkdirAll(projectSite, 0755)
 
-		// 2. Prepare environment variables
 		env := os.Environ()
 
-		// Set VIRTUAL_ENV
-		venvFound := false
+		// No venv. We inject project site-packages with PYTHONPATH.
+		pyPathFound := false
 		for i, e := range env {
-			if len(e) > 12 && e[:12] == "VIRTUAL_ENV=" {
-				env[i] = "VIRTUAL_ENV=" + effectivePath
-				venvFound = true
+			if len(e) > 11 && e[:11] == "PYTHONPATH=" {
+				env[i] = "PYTHONPATH=" + projectSite + string(os.PathListSeparator) + e[11:]
+				pyPathFound = true
 				break
 			}
 		}
-		if !venvFound {
-			env = append(env, "VIRTUAL_ENV="+effectivePath)
+		if !pyPathFound {
+			env = append(env, "PYTHONPATH="+projectSite)
 		}
 
-		// Update PATH to include venv Scripts
-		scriptsDir := filepath.Join(effectivePath, "Scripts")
+		scriptsDir := filepath.Join(pythonRoot, "Scripts")
 		if _, err := os.Stat(scriptsDir); os.IsNotExist(err) {
-			scriptsDir = filepath.Join(effectivePath, "bin") // Unix fallback
+			scriptsDir = filepath.Join(pythonRoot, "bin")
 		}
-
 		pathValue := os.Getenv("PATH")
-		newPath := scriptsDir + string(os.PathListSeparator) + effectivePath + string(os.PathListSeparator) + pathValue
+		newPath := scriptsDir + string(os.PathListSeparator) + pythonRoot + string(os.PathListSeparator) + pathValue
 
 		pathFound := false
 		for i, e := range env {
@@ -61,7 +62,6 @@ var runCmd = &cobra.Command{
 			env = append(env, "PATH="+newPath)
 		}
 
-		// 3. Execute command
 		if len(args) == 0 {
 			pterm.Error.Println("No command provided to run.")
 			return
@@ -81,7 +81,6 @@ var runCmd = &cobra.Command{
 		commandName := commandArgs[0]
 		remainingArgs := commandArgs[1:]
 
-		// Resolve 'python' to absolute path if it matches our environment
 		if commandName == "python" || commandName == "python.exe" {
 			if exe, err := pm.GetEffectivePythonExe(pythonVersion); err == nil {
 				commandName = exe
