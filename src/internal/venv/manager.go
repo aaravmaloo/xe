@@ -2,10 +2,12 @@ package venv
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"xe/src/internal/xedir"
 )
 
 type VenvManager struct {
@@ -13,11 +15,7 @@ type VenvManager struct {
 }
 
 func NewVenvManager() (*VenvManager, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, err
-	}
-	baseDir := filepath.Join(home, ".xe", "venvs")
+	baseDir := xedir.VenvDir()
 	if err := os.MkdirAll(baseDir, 0755); err != nil {
 		return nil, err
 	}
@@ -31,21 +29,28 @@ func (v *VenvManager) Create(name string, pythonPath string) error {
 	}
 
 	cmd := exec.Command(pythonPath, "-m", "venv", venvPath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	if err := cmd.Run(); err == nil {
+		return nil
+	}
+
+	// Embeddable Python distributions may not ship with stdlib venv.
+	bootstrap := exec.Command(pythonPath, "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location", "--upgrade", "--force-reinstall", "virtualenv")
+	bootstrap.Stdout = io.Discard
+	bootstrap.Stderr = io.Discard
+	if err := bootstrap.Run(); err != nil {
+		return fmt.Errorf("failed to bootstrap virtualenv: %w", err)
+	}
+
+	fallback := exec.Command(pythonPath, "-m", "virtualenv", venvPath)
+	fallback.Stdout = io.Discard
+	fallback.Stderr = io.Discard
+	return fallback.Run()
 }
 
 func (v *VenvManager) GetActiveVenv() string {
 	active := os.Getenv("VIRTUAL_ENV")
 	if active != "" {
 		return active
-	}
-
-	// Fallback: Check if 'test' venv exists as a default for this project
-	testVenv := filepath.Join(v.BaseDir, "test")
-	if _, err := os.Stat(testVenv); err == nil {
-		return testVenv
 	}
 
 	return ""
@@ -71,4 +76,44 @@ func (v *VenvManager) GetPSActivateScript(name string) string {
 		return filepath.Join(v.BaseDir, name, "Scripts", "Activate.ps1")
 	}
 	return filepath.Join(v.BaseDir, name, "bin", "Activate.ps1") // PowerShell on Linux
+}
+
+func (v *VenvManager) Exists(name string) bool {
+	_, err := os.Stat(filepath.Join(v.BaseDir, name))
+	return err == nil
+}
+
+func (v *VenvManager) Delete(name string) error {
+	if name == "" {
+		return fmt.Errorf("venv name required")
+	}
+	return os.RemoveAll(filepath.Join(v.BaseDir, name))
+}
+
+func (v *VenvManager) List() ([]string, error) {
+	entries, err := os.ReadDir(v.BaseDir)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, e := range entries {
+		if e.IsDir() {
+			out = append(out, e.Name())
+		}
+	}
+	return out, nil
+}
+
+func (v *VenvManager) GetPythonExe(name string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(v.BaseDir, name, "Scripts", "python.exe")
+	}
+	return filepath.Join(v.BaseDir, name, "bin", "python")
+}
+
+func (v *VenvManager) GetSitePackagesDir(name string) string {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(v.BaseDir, name, "Lib", "site-packages")
+	}
+	return filepath.Join(v.BaseDir, name, "lib")
 }
