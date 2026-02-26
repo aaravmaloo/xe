@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"xe/src/internal/xedir"
 
 	"github.com/pterm/pterm"
 )
@@ -40,8 +41,7 @@ func AddToPath(dir string) error {
 }
 
 func CreateShim(name, target string) error {
-	home, _ := os.UserHomeDir()
-	shimDir := filepath.Join(home, ".xe", "bin")
+	shimDir := xedir.ShimDir()
 	if err := os.MkdirAll(shimDir, 0755); err != nil {
 		return err
 	}
