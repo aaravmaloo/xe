@@ -2,6 +2,8 @@ package cmd
 
 import (
 	"os"
+	"path/filepath"
+	"xe/src/internal/project"
 
 	"github.com/spf13/viper"
 )
@@ -13,13 +15,10 @@ import (
 // 3. Fallback default (3.12.1)
 func GetPreferredPythonVersion() string {
 	// 1. Check local xe.toml
-	if _, err := os.Stat("xe.toml"); err == nil {
-		v := viper.New()
-		v.SetConfigFile("xe.toml")
-		if err := v.ReadInConfig(); err == nil {
-			if ver := v.GetString("python.version"); ver != "" {
-				return ver
-			}
+	wd, _ := os.Getwd()
+	if wd != "" {
+		if cfg, err := project.Load(filepath.Join(wd, project.FileName)); err == nil && cfg.Python.Version != "" {
+			return cfg.Python.Version
 		}
 	}
 
@@ -29,5 +28,5 @@ func GetPreferredPythonVersion() string {
 	}
 
 	// 3. Fallback
-	return "3.12.1"
+	return "3.12"
 }
