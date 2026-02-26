@@ -4,7 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"xe/src/internal/python"
+	"xe/src/internal/project"
 
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
@@ -12,19 +12,24 @@ import (
 
 var shellCmd = &cobra.Command{
 	Use:   "shell",
-	Short: "Enter a shell configured for the current xe project (no venv)",
+	Short: "Enter a shell configured for the current xe project",
 	Args:  cobra.NoArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		pm, _ := python.NewPythonManager()
-		exe, err := pm.GetEffectivePythonExe(GetPreferredPythonVersion())
+		wd, _ := os.Getwd()
+		cfg, tomlPath, err := project.LoadOrCreate(wd)
 		if err != nil {
-			pterm.Error.Printf("Python unavailable: %v\n", err)
+			pterm.Error.Printf("Failed to load project config: %v\n", err)
 			return
 		}
-		wd, _ := os.Getwd()
-		projectSite := filepath.Join(wd, ".xe", "site-packages")
-		_ = os.MkdirAll(projectSite, 0755)
-		pythonRoot := filepath.Dir(exe)
+		runtimeSel, changed, err := ensureRuntimeForProject(wd, &cfg)
+		if err != nil {
+			pterm.Error.Printf("Runtime unavailable: %v\n", err)
+			return
+		}
+		if changed {
+			_ = project.Save(tomlPath, cfg)
+		}
+		pythonRoot := runtimeSel.ActivationPath
 		path := filepath.Join(pythonRoot, "Scripts")
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			path = filepath.Join(pythonRoot, "bin")
@@ -36,10 +41,12 @@ var shellCmd = &cobra.Command{
 		c.Stdin = os.Stdin
 		c.Stdout = os.Stdout
 		c.Stderr = os.Stderr
-		c.Env = append(os.Environ(),
-			"PYTHONPATH="+projectSite,
-			"PATH="+path+string(os.PathListSeparator)+pythonRoot+string(os.PathListSeparator)+os.Getenv("PATH"),
-		)
+		env := append(os.Environ(), "PATH="+path+string(os.PathListSeparator)+pythonRoot+string(os.PathListSeparator)+os.Getenv("PATH"))
+		if runtimeSel.IsVenv {
+			venvRoot := filepath.Dir(filepath.Dir(runtimeSel.PythonExe))
+			env = append(env, "VIRTUAL_ENV="+venvRoot)
+		}
+		c.Env = env
 		if err := c.Run(); err != nil {
 			pterm.Error.Printf("Failed to spawn shell: %v\n", err)
 		}
