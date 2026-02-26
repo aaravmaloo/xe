@@ -37,9 +37,10 @@ var addCmd = &cobra.Command{
 			pterm.Error.Printf("Install failed: %v\n", err)
 			return
 		}
-
 		for _, req := range args {
-			cfg.Deps[project.NormalizeDepName(req)] = "*"
+			if depName := requirementToDepName(req); depName != "" {
+				cfg.Deps[depName] = "*"
+			}
 		}
 		for _, p := range resolved {
 			cfg.Deps[project.NormalizeDepName(p.Name)] = p.Version
