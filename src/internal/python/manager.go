@@ -2,6 +2,7 @@ package python
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -22,6 +23,19 @@ import (
 
 type PythonManager struct {
 	BaseDir string
+}
+
+const linuxStandaloneLatestReleaseAPI = "https://api.github.com/repos/astral-sh/python-build-standalone/releases/latest"
+
+var linuxStandaloneAssetPattern = regexp.MustCompile(`^cpython-(\d+\.\d+\.\d+)\+\d+-x86_64-unknown-linux-gnu-install_only\.tar\.gz$`)
+
+type standaloneRelease struct {
+	Assets []standaloneAsset `json:"assets"`
+}
+
+type standaloneAsset struct {
+	Name               string `json:"name"`
+	BrowserDownloadURL string `json:"browser_download_url"`
 }
 
 func NewPythonManager() (*PythonManager, error) {
@@ -62,6 +76,7 @@ func (m *PythonManager) Install(version string) error {
 
 	// Map short version to full installer version (platform-specific)
 	fullVersion := ""
+	url := ""
 	if runtime.GOOS == "windows" {
 		switch {
 		case version == "3.9" || strings.HasPrefix(version, "3.9"):
@@ -77,31 +92,14 @@ func (m *PythonManager) Install(version string) error {
 		default:
 			fullVersion = resolveLatestPatchVersion(version)
 		}
-	} else {
-		// Linux mapping for python-build-standalone (Release 20241016)
-		switch {
-		case strings.HasPrefix(version, "3.9"):
-			fullVersion = "3.9.20"
-		case strings.HasPrefix(version, "3.10"):
-			fullVersion = "3.10.15"
-		case strings.HasPrefix(version, "3.11"):
-			fullVersion = "3.11.10"
-		case strings.HasPrefix(version, "3.12"):
-			fullVersion = "3.12.7"
-		case strings.HasPrefix(version, "3.13"):
-			fullVersion = "3.13.0"
-		default:
-			fullVersion = resolveLatestPatchVersion(version)
-		}
-	}
-
-	// Use appropriate distribution for each platform
-	var url string
-	if runtime.GOOS == "windows" {
 		url = fmt.Sprintf("https://www.python.org/ftp/python/%s/python-%s-embed-amd64.zip", fullVersion, fullVersion)
 	} else {
-		// Using python-build-standalone for Linux
-		url = fmt.Sprintf("https://github.com/indygreg/python-build-standalone/releases/download/20241016/cpython-%s+20241016-x86_64-unknown-linux-gnu-install_only.tar.gz", fullVersion)
+		resolvedVersion, resolvedURL, err := resolveLinuxStandaloneAsset(version)
+		if err != nil {
+			return fmt.Errorf("failed to resolve linux runtime: %w", err)
+		}
+		fullVersion = resolvedVersion
+		url = resolvedURL
 	}
 
 	pterm.Info.Printf("Downloading embeddable Python from %s...\n", url)
@@ -185,6 +183,90 @@ func (m *PythonManager) Install(version string) error {
 	}
 
 	return nil
+}
+
+func resolveLinuxStandaloneAsset(version string) (string, string, error) {
+	release, err := fetchLatestStandaloneRelease()
+	if err != nil {
+		return "", "", err
+	}
+	return selectLinuxStandaloneAsset(version, release.Assets)
+}
+
+func fetchLatestStandaloneRelease() (standaloneRelease, error) {
+	req, err := http.NewRequest(http.MethodGet, linuxStandaloneLatestReleaseAPI, nil)
+	if err != nil {
+		return standaloneRelease{}, err
+	}
+	req.Header.Set("User-Agent", "xe")
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return standaloneRelease{}, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return standaloneRelease{}, fmt.Errorf("github releases API failed: %s (%s)", resp.Status, strings.TrimSpace(string(body)))
+	}
+
+	var release standaloneRelease
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return standaloneRelease{}, err
+	}
+
+	return release, nil
+}
+
+func selectLinuxStandaloneAsset(version string, assets []standaloneAsset) (string, string, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) < 2 {
+		return "", "", fmt.Errorf("invalid python version %q", version)
+	}
+
+	type candidate struct {
+		version string
+		url     string
+	}
+
+	versionPrefix := parts[0] + "." + parts[1] + "."
+	exactRequested := len(parts) >= 3
+	candidates := make([]candidate, 0)
+
+	for _, asset := range assets {
+		m := linuxStandaloneAssetPattern.FindStringSubmatch(asset.Name)
+		if len(m) < 2 {
+			continue
+		}
+		candidateVersion := m[1]
+		if exactRequested {
+			if candidateVersion == version {
+				return candidateVersion, asset.BrowserDownloadURL, nil
+			}
+			continue
+		}
+		if strings.HasPrefix(candidateVersion, versionPrefix) {
+			candidates = append(candidates, candidate{
+				version: candidateVersion,
+				url:     asset.BrowserDownloadURL,
+			})
+		}
+	}
+
+	if exactRequested {
+		return "", "", fmt.Errorf("no standalone build found for python %s on x86_64 linux", version)
+	}
+	if len(candidates) == 0 {
+		return "", "", fmt.Errorf("no standalone builds found for python %s on x86_64 linux", version)
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		return compareVersion(candidates[i].version, candidates[j].version) > 0
+	})
+
+	return candidates[0].version, candidates[0].url, nil
 }
 
 func resolveLatestPatchVersion(version string) string {
