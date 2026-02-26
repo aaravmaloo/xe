@@ -15,6 +15,7 @@ import (
 	"xe/src/internal/python"
 	"xe/src/internal/utils"
 	"xe/src/internal/venv"
+	"xe/src/internal/xedir"
 
 	"github.com/codeclysm/extract/v3"
 	"github.com/pterm/pterm"
@@ -154,8 +155,7 @@ func (r *Resolver) downloadAndInstallPackage(pkg Package, version string) error 
 	}
 
 	// 3. Download to cache
-	home, _ := os.UserHomeDir()
-	cacheDir := filepath.Join(home, ".xe", "cache")
+	cacheDir := xedir.CacheDir()
 	os.MkdirAll(cacheDir, 0755)
 
 	cachePath := filepath.Join(cacheDir, pkg.Name+"-"+pkg.Version+".whl")
