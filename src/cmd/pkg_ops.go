@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -17,6 +18,41 @@ import (
 type pipPkg struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
+}
+
+func parsePipListOutput(out []byte) ([]pipPkg, error) {
+	trimmed := bytes.TrimSpace(out)
+	var direct []pipPkg
+	if err := json.Unmarshal(trimmed, &direct); err == nil {
+		return direct, nil
+	}
+
+	for start := bytes.IndexByte(trimmed, '['); start >= 0 && start < len(trimmed); {
+		depth := 0
+		for i := start; i < len(trimmed); i++ {
+			switch trimmed[i] {
+			case '[':
+				depth++
+			case ']':
+				depth--
+				if depth == 0 {
+					chunk := bytes.TrimSpace(trimmed[start : i+1])
+					var pkgs []pipPkg
+					if err := json.Unmarshal(chunk, &pkgs); err == nil {
+						return pkgs, nil
+					}
+					break
+				}
+			}
+		}
+		next := bytes.IndexByte(trimmed[start+1:], '[')
+		if next < 0 {
+			break
+		}
+		start += next + 1
+	}
+
+	return nil, fmt.Errorf("pip JSON payload not found in output")
 }
 
 var listCmd = &cobra.Command{
@@ -47,8 +83,8 @@ var listCmd = &cobra.Command{
 			return
 		}
 
-		var pkgs []pipPkg
-		if err := json.Unmarshal(out, &pkgs); err != nil {
+		pkgs, err := parsePipListOutput(out)
+		if err != nil {
 			pterm.Error.Printf("Failed to parse package list: %v\n", err)
 			return
 		}
@@ -109,8 +145,8 @@ var removeCmd = &cobra.Command{
 				}
 				return
 			}
-			var pkgs []pipPkg
-			if err := json.Unmarshal(out, &pkgs); err != nil {
+			pkgs, err := parsePipListOutput(out)
+			if err != nil {
 				pterm.Error.Printf("Failed to parse package list: %v\n", err)
 				return
 			}
