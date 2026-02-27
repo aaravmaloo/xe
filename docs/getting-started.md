@@ -2,14 +2,8 @@
 
 ## Build xe
 
-```bash
-go build -o xe main.go
-```
-
-On Windows:
-
 ```powershell
-go build -o xe.exe main.go
+.\scripts\build_windows_rust.ps1
 ```
 
 ## Initial setup
