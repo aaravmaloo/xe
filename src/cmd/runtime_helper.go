@@ -8,6 +8,7 @@ import (
 	"strings"
 	"xe/src/internal/project"
 	"xe/src/internal/python"
+	"xe/src/internal/telemetry"
 	"xe/src/internal/venv"
 )
 
@@ -19,33 +20,64 @@ type RuntimeSelection struct {
 	IsVenv         bool
 }
 
-func ensureRuntimeForProject(wd string, cfg *project.Config) (*RuntimeSelection, bool, error) {
+func ensureRuntimeForProject(wd string, cfg *project.Config) (selection *RuntimeSelection, configChanged bool, retErr error) {
+	done := telemetry.StartSpan("runtime.ensure", "working_dir", wd, "python_version", cfg.Python.Version)
+	defer func() {
+		fields := []any{
+			"status", "ok",
+			"changed_config", configChanged,
+			"is_venv", selection != nil && selection.IsVenv,
+		}
+		if retErr != nil {
+			fields[1] = "error"
+			fields = append(fields, "error", retErr.Error())
+		}
+		done(fields...)
+	}()
+
+	pmDone := telemetry.StartSpan("runtime.python_manager.new")
 	pm, err := python.NewPythonManager()
 	if err != nil {
-		return nil, false, err
+		pmDone("status", "error", "error", err.Error())
+		retErr = err
+		return nil, false, retErr
 	}
+	pmDone("status", "ok")
 
 	if cfg.Python.Version == "" {
 		cfg.Python.Version = GetPreferredPythonVersion()
 	}
 
+	exeDone := telemetry.StartSpan("runtime.python_exe.lookup", "python_version", cfg.Python.Version)
 	pythonExe, err := pm.GetPythonExe(cfg.Python.Version)
+	exeDone("status", "ok", "found", err == nil)
 	if err != nil {
+		installDone := telemetry.StartSpan("runtime.python.install", "python_version", cfg.Python.Version)
 		if err := pm.Install(cfg.Python.Version); err != nil {
-			return nil, false, err
+			installDone("status", "error", "error", err.Error())
+			retErr = err
+			return nil, false, retErr
 		}
+		installDone("status", "ok")
+		exeDone = telemetry.StartSpan("runtime.python_exe.lookup.post_install", "python_version", cfg.Python.Version)
 		pythonExe, err = pm.GetPythonExe(cfg.Python.Version)
 		if err != nil {
-			return nil, false, err
+			exeDone("status", "error", "error", err.Error())
+			retErr = err
+			return nil, false, retErr
 		}
+		exeDone("status", "ok")
 	}
 
+	vmDone := telemetry.StartSpan("runtime.venv_manager.new")
 	vm, err := venv.NewVenvManager()
 	if err != nil {
-		return nil, false, err
+		vmDone("status", "error", "error", err.Error())
+		retErr = err
+		return nil, false, retErr
 	}
+	vmDone("status", "ok")
 
-	configChanged := false
 	venvName := strings.TrimSpace(cfg.Venv.Name)
 	if venvName == "" && cfg.Settings.AutoVenv {
 		name := cfg.Project.Name
@@ -63,42 +95,55 @@ func ensureRuntimeForProject(wd string, cfg *project.Config) (*RuntimeSelection,
 
 	if venvName != "" {
 		if !vm.Exists(venvName) {
+			createDone := telemetry.StartSpan("runtime.venv.create", "venv", venvName)
 			if err := vm.Create(venvName, pythonExe); err != nil {
-				return nil, configChanged, fmt.Errorf("create venv %s: %w", venvName, err)
+				createDone("status", "error", "error", err.Error())
+				retErr = fmt.Errorf("create venv %s: %w", venvName, err)
+				return nil, configChanged, retErr
 			}
+			createDone("status", "ok")
 		}
 		venvExe := vm.GetPythonExe(venvName)
 		if _, err := os.Stat(venvExe); err != nil {
-			return nil, configChanged, fmt.Errorf("venv python not found: %s", venvExe)
+			retErr = fmt.Errorf("venv python not found: %s", venvExe)
+			return nil, configChanged, retErr
 		}
 		siteDir := vm.GetSitePackagesDir(venvName)
 		if strings.EqualFold(filepath.Base(siteDir), "lib") {
+			detectDone := telemetry.StartSpan("runtime.venv.site_packages.detect", "venv", venvName)
 			siteDir, _ = detectVenvSitePackages(venvExe)
+			detectDone("status", "ok", "site_packages", siteDir)
 		}
 		if siteDir == "" {
 			siteDir = filepath.Join(vm.BaseDir, venvName, "Lib", "site-packages")
 		}
 		_ = os.MkdirAll(siteDir, 0755)
-		return &RuntimeSelection{
+		selection = &RuntimeSelection{
 			PythonExe:      venvExe,
 			SitePackages:   siteDir,
 			ActivationPath: filepath.Dir(venvExe),
 			VenvName:       venvName,
 			IsVenv:         true,
-		}, configChanged, nil
+		}
+		return selection, configChanged, nil
 	}
 
+	siteDone := telemetry.StartSpan("runtime.global.site_packages.lookup", "python_version", cfg.Python.Version)
 	siteDir, err := pm.GetSitePackagesDir(cfg.Python.Version)
 	if err != nil {
-		return nil, configChanged, err
+		siteDone("status", "error", "error", err.Error())
+		retErr = err
+		return nil, configChanged, retErr
 	}
-	return &RuntimeSelection{
+	siteDone("status", "ok", "site_packages", siteDir)
+	selection = &RuntimeSelection{
 		PythonExe:      pythonExe,
 		SitePackages:   siteDir,
 		ActivationPath: filepath.Dir(pythonExe),
 		VenvName:       "",
 		IsVenv:         false,
-	}, configChanged, nil
+	}
+	return selection, configChanged, nil
 }
 
 func normalizeVenvName(name string) string {
