@@ -36,3 +36,24 @@
 - Use `xe sync` in CI to align installs with `xe.toml`.
 - Keep cache warm across builds for best throughput.
 - Prefer shared cache persistence between CI jobs for lower cold-start time.
+
+## Profiling slow paths
+
+`xe` now supports built-in profiling with structured timing logs:
+
+```bash
+xe --profile add requests
+xe --profile --profile-dir .xe/profiles sync
+```
+
+Each profiled run writes three artifacts:
+
+- `trace-<timestamp>.jsonl`: structured timing events for spans such as runtime setup, resolve, CAS download, and wheel extraction.
+- `cpu-<timestamp>.pprof`: CPU profile.
+- `heap-<timestamp>.pprof`: heap profile captured at command end.
+
+To inspect the CPU profile:
+
+```bash
+go tool pprof -top ./xe /path/to/cpu-*.pprof
+```
