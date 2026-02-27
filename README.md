@@ -1,6 +1,6 @@
 # xe
 
-`xe` is a Go-style Python toolchain manager with:
+`xe` is a Rust-first Python toolchain manager with:
 
 - one `xe.toml` per project,
 - no virtualenvs,
@@ -9,13 +9,13 @@
 
 ## Quick start
 
-```bash
-go build -o xe main.go
-./xe init
-./xe python install 3.12
-./xe use 3.12
-./xe add requests
-./xe run -- python -c "import requests; print(requests.__version__)"
+```powershell
+cargo build --release --manifest-path rust/xe_cli/Cargo.toml
+.\rust\xe_cli\target\release\xe.exe init
+.\rust\xe_cli\target\release\xe.exe python install 3.12
+.\rust\xe_cli\target\release\xe.exe use 3.12
+.\rust\xe_cli\target\release\xe.exe add requests
+.\rust\xe_cli\target\release\xe.exe run -- python -c "import requests; print(requests.__version__)"
 ```
 
 ## Core workflow
@@ -50,4 +50,19 @@ Use `--profile` on any command to capture timing logs and pprof artifacts:
 
 ```bash
 ./xe --profile add requests
+```
+
+## Build Single EXE (Rust Only)
+
+Windows build steps (single `xe.exe`):
+
+```powershell
+.\scripts\build_windows_rust.ps1
+```
+
+Manual equivalent:
+
+```powershell
+cargo build --release --manifest-path rust/xe_cli/Cargo.toml
+Copy-Item .\rust\xe_cli\target\release\xe.exe .\xe.exe -Force
 ```
