@@ -54,13 +54,13 @@ flowchart TD
 
 | Component | Responsibility |
 | :--- | :--- |
-| CLI layer (`src/cmd`) | Command parsing, UX, orchestration |
-| Project config (`internal/project`) | Load/save `xe.toml`, defaults, dependency map |
-| Resolver (`internal/resolver`) | Resolve package metadata and dependency artifacts |
-| Install engine (`internal/engine`) | Execute solve/download/install pipeline |
-| Cache (`internal/cache`) | CAS blobs and solve graph metadata |
-| Python manager (`internal/python`) | Runtime install/discovery and invocation |
-| Security (`internal/security`) | Token save/load/revoke abstractions |
+| CLI layer (`rust/xe_cli`) | Command parsing, UX, orchestration |
+| Project config | Load/save `xe.toml`, defaults, dependency map |
+| Resolver | Resolve package metadata and dependency artifacts |
+| Install engine | Execute solve/download/install pipeline |
+| Cache | CAS blobs and solve graph metadata |
+| Python manager | Runtime install/discovery and invocation |
+| Security | Token save/load/revoke abstractions |
 
 ## Install Target Model
 
@@ -76,4 +76,4 @@ flowchart TD
 | `./.xe/site-packages` | Project-local installed artifacts |
 | `%LOCALAPPDATA%/xe/cache` (Windows) | Global CAS cache |
 | `~/.cache/xe` (Linux/macOS) | Global CAS cache |
-| `~/.xe/config.yaml` | Global defaults |
+| `%LOCALAPPDATA%/xe/config.yaml` (Windows) / `~/.local/share/xe/config.yaml` (Linux/macOS) | Global defaults |
