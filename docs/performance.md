@@ -12,6 +12,7 @@
 | Download planning | Planned artifact retrieval before install | Reduced redundant transfer |
 | Streamed extraction | Extract wheel content into project target | Lower intermediate filesystem overhead |
 | Project-local install target | `.xe/site-packages` with direct extraction | Fast runtime activation |
+| Rust extraction core | Native wheel unpacking in Rust | Lower extraction overhead on large wheels |
 
 ## Cache model
 
@@ -52,8 +53,4 @@ Each profiled run writes three artifacts:
 - `cpu-<timestamp>.pprof`: CPU profile.
 - `heap-<timestamp>.pprof`: heap profile captured at command end.
 
-To inspect the CPU profile:
-
-```bash
-go tool pprof -top ./xe /path/to/cpu-*.pprof
-```
+Use `trace-*.jsonl` as the primary profiling artifact for timing analysis.
