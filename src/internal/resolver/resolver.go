@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"sync"
 	"xe/src/internal/python"
+	"xe/src/internal/telemetry"
 	"xe/src/internal/utils"
 	"xe/src/internal/venv"
 	"xe/src/internal/xedir"
@@ -67,11 +68,13 @@ func NewResolver() *Resolver {
 }
 
 func (r *Resolver) Resolve(pkgName string, pythonVersion string) ([]Package, error) {
+	done := telemetry.StartSpan("resolver.resolve", "requirement", pkgName, "python_version", pythonVersion)
 	pm, _ := python.NewPythonManager()
 
 	// Use a temporary file for the report to avoid stdout encoding issues
 	tempFile, err := os.CreateTemp("", "xe-report-*.json")
 	if err != nil {
+		done("status", "error", "error", err.Error())
 		return nil, err
 	}
 	reportPath := tempFile.Name()
@@ -79,21 +82,33 @@ func (r *Resolver) Resolve(pkgName string, pythonVersion string) ([]Package, err
 	defer os.Remove(reportPath)
 
 	// Use pip install --report to get all dependencies in one go (dry-run)
+	pipDone := telemetry.StartSpan("resolver.pip_report.generate", "requirement", pkgName)
 	output, err := pm.RunPython(pythonVersion, "-m", "pip", "install", pkgName, "--dry-run", "--report", reportPath)
 	if err != nil {
+		pipDone("status", "error", "error", err.Error())
+		done("status", "error", "error", err.Error())
 		return nil, fmt.Errorf("dependency resolution failed: %v, output: %s", err, string(output))
 	}
+	pipDone("status", "ok")
 
+	readDone := telemetry.StartSpan("resolver.pip_report.read", "requirement", pkgName)
 	reportData, err := os.ReadFile(reportPath)
 	if err != nil {
+		readDone("status", "error", "error", err.Error())
+		done("status", "error", "error", err.Error())
 		return nil, fmt.Errorf("failed to read pip report: %v", err)
 	}
+	readDone("status", "ok", "bytes", len(reportData))
 
 	var report PipReport
+	parseDone := telemetry.StartSpan("resolver.pip_report.parse", "requirement", pkgName)
 	sanitized := utils.SanitizeJSON(reportData)
 	if err := json.Unmarshal(sanitized, &report); err != nil {
+		parseDone("status", "error", "error", err.Error())
+		done("status", "error", "error", err.Error())
 		return nil, fmt.Errorf("failed to parse pip report: %v", err)
 	}
+	parseDone("status", "ok", "install_items", len(report.Install))
 
 	var packages []Package
 	for _, item := range report.Install {
@@ -106,6 +121,7 @@ func (r *Resolver) Resolve(pkgName string, pythonVersion string) ([]Package, err
 		})
 	}
 
+	done("status", "ok", "packages", len(packages))
 	return packages, nil
 }
 
