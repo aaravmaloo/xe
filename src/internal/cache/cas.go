@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"xe/src/internal/telemetry"
 )
 
 type CAS struct {
@@ -28,24 +29,34 @@ func New(root string) (*CAS, error) {
 }
 
 func (c *CAS) StoreBlobFromURL(url, expectedSha256 string) (string, error) {
+	done := telemetry.StartSpan("cas.store_blob", "url", url)
 	if expectedSha256 != "" {
 		target := c.blobPath(expectedSha256)
 		if _, err := os.Stat(target); err == nil {
+			done("status", "ok", "cache_hit", true)
 			return target, nil
 		}
 	}
 
+	downloadDone := telemetry.StartSpan("cas.download", "url", url)
 	resp, err := http.Get(url)
 	if err != nil {
+		downloadDone("status", "error", "error", err.Error())
+		done("status", "error", "error", err.Error())
 		return "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download failed: %s", resp.Status)
+		downloadDone("status", "error", "status", resp.Status)
+		err = fmt.Errorf("download failed: %s", resp.Status)
+		done("status", "error", "error", err.Error())
+		return "", err
 	}
 
 	tmp, err := os.CreateTemp(c.Root, "xe-download-*")
 	if err != nil {
+		downloadDone("status", "error", "error", err.Error())
+		done("status", "error", "error", err.Error())
 		return "", err
 	}
 	tmpPath := tmp.Name()
@@ -54,24 +65,33 @@ func (c *CAS) StoreBlobFromURL(url, expectedSha256 string) (string, error) {
 	hash := sha256.New()
 	if _, err := io.Copy(io.MultiWriter(tmp, hash), resp.Body); err != nil {
 		tmp.Close()
+		downloadDone("status", "error", "error", err.Error())
+		done("status", "error", "error", err.Error())
 		return "", err
 	}
+	downloadDone("status", "ok")
 	if err := tmp.Close(); err != nil {
+		done("status", "error", "error", err.Error())
 		return "", err
 	}
 
 	actual := hex.EncodeToString(hash.Sum(nil))
 	if expectedSha256 != "" && !strings.EqualFold(expectedSha256, actual) {
-		return "", fmt.Errorf("checksum mismatch: expected=%s actual=%s", expectedSha256, actual)
+		err = fmt.Errorf("checksum mismatch: expected=%s actual=%s", expectedSha256, actual)
+		done("status", "error", "error", err.Error())
+		return "", err
 	}
 
 	target := c.blobPath(actual)
 	if _, err := os.Stat(target); err == nil {
+		done("status", "ok", "cache_hit", true)
 		return target, nil
 	}
 	if err := os.Rename(tmpPath, target); err != nil {
+		done("status", "error", "error", err.Error())
 		return "", err
 	}
+	done("status", "ok", "cache_hit", false)
 	return target, nil
 }
 
