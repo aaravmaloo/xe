@@ -1,6 +1,6 @@
 # xe Documentation
 
-`xe` is a Python toolchain manager written in Go with a no-virtualenv runtime model.
+`xe` is a Python toolchain manager written in Rust with a no-virtualenv runtime model.
 
 ## What xe provides
 
