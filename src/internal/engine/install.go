@@ -15,9 +15,8 @@ import (
 	"xe/src/internal/project"
 	"xe/src/internal/python"
 	"xe/src/internal/resolver"
+	"xe/src/internal/rustbridge"
 	"xe/src/internal/telemetry"
-
-	"github.com/codeclysm/extract/v3"
 )
 
 type Installer struct {
@@ -128,6 +127,15 @@ func (i *Installer) Install(ctx context.Context, cfg project.Config, requirement
 		retErr = err
 		return nil, retErr
 	}
+	installedDone := telemetry.StartSpan("install.site_packages.scan", "site_packages", installSitePackages)
+	installedSet, err := installedPackageKeySet(installSitePackages)
+	if err != nil {
+		installedDone("status", "error", "error", err.Error())
+		retErr = err
+		return nil, retErr
+	}
+	installedDone("status", "ok", "installed_keys", len(installedSet))
+	var installedMu sync.RWMutex
 
 	workers := runtime.NumCPU() * 2
 	if workers < 2 {
@@ -156,7 +164,11 @@ func (i *Installer) Install(ctx context.Context, cfg project.Config, requirement
 			defer wg.Done()
 			for pkg := range jobs {
 				pkgDone := telemetry.StartSpan("install.package", "name", pkg.Name, "version", pkg.Version)
-				if isInstalledInSitePackages(installSitePackages, pkg) {
+				key := packageIdentityKey(pkg.Name, pkg.Version)
+				installedMu.RLock()
+				alreadyInstalled := installedSet[key]
+				installedMu.RUnlock()
+				if alreadyInstalled {
 					pkgDone("status", "skipped", "reason", "already_installed")
 					continue
 				}
@@ -185,6 +197,9 @@ func (i *Installer) Install(ctx context.Context, cfg project.Config, requirement
 				}
 				<-extractSem
 				extractDone("status", "ok")
+				installedMu.Lock()
+				installedSet[key] = true
+				installedMu.Unlock()
 				pkgDone("status", "ok")
 			}
 		}()
@@ -251,12 +266,7 @@ func (i *Installer) resolveParallel(ctx context.Context, pythonVersion string, r
 }
 
 func installWheelBlob(blobPath, sitePackages string) error {
-	f, err := os.Open(blobPath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return extract.Archive(context.Background(), f, sitePackages, nil)
+	return rustbridge.ExtractWheel(blobPath, sitePackages)
 }
 
 func extractionWorkers() int {
@@ -277,16 +287,18 @@ func normalizePackageIdentity(name string) string {
 	return n
 }
 
-func isInstalledInSitePackages(sitePackages string, pkg resolver.Package) bool {
+func packageIdentityKey(name, version string) string {
+	return normalizePackageIdentity(name) + "==" + strings.TrimSpace(version)
+}
+
+func installedPackageKeySet(sitePackages string) (map[string]bool, error) {
+	out := map[string]bool{}
 	entries, err := os.ReadDir(sitePackages)
 	if err != nil {
-		return false
-	}
-
-	targetName := normalizePackageIdentity(pkg.Name)
-	targetVersion := strings.TrimSpace(pkg.Version)
-	if targetName == "" || targetVersion == "" {
-		return false
+		if os.IsNotExist(err) {
+			return out, nil
+		}
+		return nil, err
 	}
 
 	for _, entry := range entries {
@@ -302,13 +314,10 @@ func isInstalledInSitePackages(sitePackages string, pkg resolver.Package) bool {
 		if sep <= 0 || sep >= len(base)-1 {
 			continue
 		}
-		installedName := normalizePackageIdentity(base[:sep])
-		installedVersion := strings.TrimSpace(base[sep+1:])
-		if installedName == targetName && installedVersion == targetVersion {
-			return true
-		}
+		key := packageIdentityKey(base[:sep], base[sep+1:])
+		out[key] = true
 	}
-	return false
+	return out, nil
 }
 
 func solveKey(pythonVersion string, reqs []string) string {
