@@ -43,3 +43,11 @@ Project docs are in MkDocs format.
 mkdocs serve
 mkdocs build
 ```
+
+## Profiling
+
+Use `--profile` on any command to capture timing logs and pprof artifacts:
+
+```bash
+./xe --profile add requests
+```
